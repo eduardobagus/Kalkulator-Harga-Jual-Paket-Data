@@ -1,12 +1,23 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
   calculatePrice,
   getProductTaxInfo,
   fmtNumber,
   fmtPercent,
 } from "../lib/calculator";
+
+const NUM_SCENARIOS = 5;
+
+// Color palette for scenario headers
+const SCENARIO_COLORS = [
+  { class: "group-header-s1", color: "var(--accent-light)", border: "var(--accent)" },
+  { class: "group-header-s2", color: "#38bdf8", border: "#38bdf8" },
+  { class: "group-header-s3", color: "#a78bfa", border: "#a78bfa" },
+  { class: "group-header-s4", color: "#fb923c", border: "#fb923c" },
+  { class: "group-header-s5", color: "#f472b6", border: "#f472b6" },
+];
 
 function MarginBadge({ actual, target }) {
   if (isNaN(actual)) return <span>-</span>;
@@ -116,23 +127,20 @@ function ProductRow({ row, index, onUpdate, onDelete, taxEnabled }) {
         </>
       )}
 
-      {/* Results injected via props */}
-      <td className="col-price cell-price">{row._p1 ?? "-"}</td>
-      <td className="col-margin cell-margin">
-        {row._m1 !== undefined ? (
-          <MarginBadge actual={row._m1} target={row._targetMargin1} />
-        ) : (
-          "-"
-        )}
-      </td>
-      <td className="col-price cell-price">{row._p2 ?? "-"}</td>
-      <td className="col-margin cell-margin">
-        {row._m2 !== undefined ? (
-          <MarginBadge actual={row._m2} target={row._targetMargin2} />
-        ) : (
-          "-"
-        )}
-      </td>
+      {/* Results for all 5 scenarios */}
+      {Array.from({ length: NUM_SCENARIOS }, (_, i) => (
+        <React.Fragment key={i}>
+          <td className="col-price cell-price">{row[`_p${i}`] ?? "-"}</td>
+          <td className="col-margin cell-margin">
+            {row[`_m${i}`] !== undefined ? (
+              <MarginBadge actual={row[`_m${i}`]} target={row[`_targetMargin${i}`]} />
+            ) : (
+              "-"
+            )}
+          </td>
+        </React.Fragment>
+      ))}
+
       <td className="col-action text-center">
         <button
           className="tbl-btn-del"
@@ -153,60 +161,106 @@ export default function ProductTable({
   onDelete,
   onAdd,
   onReset,
-  margin1,
-  margin2,
-  qty1,
-  qty2,
+  margins,
+  quantities,
   error,
   taxEnabled = true,
   children,
 }) {
-  const enrichedData = useMemo(() => {
-    const m1 = parseFloat(margin1) / 100;
-    const m2 = parseFloat(margin2) / 100;
+  const parsedMargins = useMemo(
+    () => margins.map((m) => parseFloat(m) / 100),
+    [margins]
+  );
 
-    return data.map((row) => {
+  const enrichedData = useMemo(() => {
+    return data.map((row, originalIndex) => {
       const rawCogs = row[4];
       const cogs = typeof rawCogs === "number" ? rawCogs : parseFloat(rawCogs);
       const enriched = [...row];
-      enriched._targetMargin1 = m1;
-      enriched._targetMargin2 = m2;
+      enriched._originalIndex = originalIndex;
 
       const taxInfo = getProductTaxInfo(row[0], taxEnabled);
       enriched._taxInfo = taxInfo;
 
-      if (!error && !isNaN(cogs) && cogs >= 0 && rawCogs !== "") {
-        const a = calculatePrice(cogs, m1, taxInfo.totalRate);
-        const b = calculatePrice(cogs, m2, taxInfo.totalRate);
-        enriched._p1 = `Rp ${fmtNumber.format(a.price)}`;
-        enriched._rawPrice1 = a.price;
-        enriched._m1 = a.margin;
-        enriched._p2 = `Rp ${fmtNumber.format(b.price)}`;
-        enriched._rawPrice2 = b.price;
-        enriched._m2 = b.margin;
-        enriched._effectiveCogs = a.effectiveCogs;
-        enriched._taxAmount = a.taxAmount;
-      } else {
-        enriched._p1 = "-";
-        enriched._rawPrice1 = 0;
-        enriched._m1 = undefined;
-        enriched._p2 = "-";
-        enriched._rawPrice2 = 0;
-        enriched._m2 = undefined;
-        enriched._effectiveCogs = undefined;
-        enriched._taxAmount = undefined;
+      for (let i = 0; i < NUM_SCENARIOS; i++) {
+        enriched[`_targetMargin${i}`] = parsedMargins[i];
+
+        if (!error && !isNaN(cogs) && cogs >= 0 && rawCogs !== "") {
+          const result = calculatePrice(cogs, parsedMargins[i], taxInfo.totalRate);
+          enriched[`_p${i}`] = `Rp ${fmtNumber.format(result.price)}`;
+          enriched[`_rawPrice${i}`] = result.price;
+          enriched[`_m${i}`] = result.margin;
+          // Share effective COGS from first calc (same for all scenarios)
+          if (i === 0) {
+            enriched._effectiveCogs = result.effectiveCogs;
+            enriched._taxAmount = result.taxAmount;
+          }
+        } else {
+          enriched[`_p${i}`] = "-";
+          enriched[`_rawPrice${i}`] = 0;
+          enriched[`_m${i}`] = undefined;
+          if (i === 0) {
+            enriched._effectiveCogs = undefined;
+            enriched._taxAmount = undefined;
+          }
+        }
       }
 
       return enriched;
     });
-  }, [data, margin1, margin2, error, taxEnabled]);
+  }, [data, parsedMargins, error, taxEnabled]);
 
-  const q1Label = isNaN(parseFloat(qty1))
-    ? "-"
-    : fmtNumber.format(parseFloat(qty1));
-  const q2Label = isNaN(parseFloat(qty2))
-    ? "-"
-    : fmtNumber.format(parseFloat(qty2));
+  const qtyLabels = useMemo(
+    () =>
+      quantities.map((q) =>
+        isNaN(parseFloat(q)) ? "-" : fmtNumber.format(parseFloat(q))
+      ),
+    [quantities]
+  );
+
+  // Pagination state (default: 10 baris per halaman)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  const totalRows = enrichedData.length;
+  const isAll = pageSize === "all";
+  const effectivePageSize = isAll ? totalRows : Number(pageSize);
+  const totalPages = isAll ? 1 : Math.max(1, Math.ceil(totalRows / effectivePageSize));
+
+  // Reset page when out of bounds
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(Math.max(1, totalPages));
+    }
+  }, [currentPage, totalPages]);
+
+  const startIndex = isAll ? 0 : (currentPage - 1) * effectivePageSize;
+  const endIndex = isAll ? totalRows : Math.min(startIndex + effectivePageSize, totalRows);
+  const displayedRows = enrichedData.slice(startIndex, endIndex);
+
+  // Helper when adding product so user lands on the new row's page
+  const handleAddProduct = () => {
+    onAdd();
+    if (!isAll) {
+      const newTotal = totalRows + 1;
+      const targetPage = Math.ceil(newTotal / effectivePageSize);
+      setCurrentPage(targetPage);
+    }
+  };
+
+  // Generate page numbers array with ellipses
+  const pageNumbers = useMemo(() => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    if (currentPage <= 4) {
+      return [1, 2, 3, 4, 5, "...", totalPages];
+    }
+    if (currentPage >= totalPages - 3) {
+      return [1, "...", totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    }
+    return [1, "...", currentPage - 1, currentPage, currentPage + 1, "...", totalPages];
+  }, [currentPage, totalPages]);
 
   const [isExporting, setIsExporting] = useState(false);
 
@@ -228,12 +282,12 @@ export default function ProductTable({
         headerRow.push("Tarif Pajak", "Nominal Pajak (Rp)", "COGS + Pajak (Rp)");
       }
 
-      headerRow.push(
-        `Harga Jual (${q1Label} unit - Margin ${margin1}%)`,
-        `Margin Aktual (${q1Label} unit)`,
-        `Harga Jual (${q2Label} unit - Margin ${margin2}%)`,
-        `Margin Aktual (${q2Label} unit)`
-      );
+      for (let i = 0; i < NUM_SCENARIOS; i++) {
+        headerRow.push(
+          `Harga Jual (${qtyLabels[i]} unit - Margin ${margins[i]}%)`,
+          `Margin Aktual (${qtyLabels[i]} unit)`
+        );
+      }
 
       const dataRows = enrichedData.map((row, idx) => {
         const item = [
@@ -253,20 +307,23 @@ export default function ProductTable({
           );
         }
 
-        const p1Val = typeof row._rawPrice1 === "number" ? Math.round(row._rawPrice1) : 0;
-        const m1Pct = row._m1 !== undefined && !isNaN(row._m1) ? `${(row._m1 * 100).toFixed(1)}%` : "-";
-        const p2Val = typeof row._rawPrice2 === "number" ? Math.round(row._rawPrice2) : 0;
-        const m2Pct = row._m2 !== undefined && !isNaN(row._m2) ? `${(row._m2 * 100).toFixed(1)}%` : "-";
+        for (let i = 0; i < NUM_SCENARIOS; i++) {
+          const pVal = typeof row[`_rawPrice${i}`] === "number" ? Math.round(row[`_rawPrice${i}`]) : 0;
+          const mPct = row[`_m${i}`] !== undefined && !isNaN(row[`_m${i}`]) ? `${(row[`_m${i}`] * 100).toFixed(1)}%` : "-";
+          item.push(pVal, mPct);
+        }
 
-        item.push(p1Val, m1Pct, p2Val, m2Pct);
         return item;
       });
+
+      const scenarioSummary = margins.map(
+        (m, i) => `Skenario ${i + 1}: ${qtyLabels[i]} unit (Margin ${m}%)`
+      ).join("  |  ");
 
       const ws = XLSX.utils.aoa_to_sheet([
         ["Kalkulator Harga Jual Paket Data"],
         [
-          `Skenario 1: ${q1Label} unit (Margin ${margin1}%)`,
-          `Skenario 2: ${q2Label} unit (Margin ${margin2}%)`,
+          scenarioSummary,
           `Pajak: ${taxEnabled ? "Aktif" : "Nonaktif"}`,
           `Sistem: Nominal Rupiah bulat tanpa desimal`,
         ],
@@ -283,10 +340,7 @@ export default function ProductTable({
         { wch: 14 },
         { wch: 16 },
         ...(taxEnabled ? [{ wch: 18 }, { wch: 18 }, { wch: 18 }] : []),
-        { wch: 24 },
-        { wch: 16 },
-        { wch: 24 },
-        { wch: 16 },
+        ...Array.from({ length: NUM_SCENARIOS }, () => [{ wch: 24 }, { wch: 16 }]).flat(),
       ];
 
       const wb = XLSX.utils.book_new();
@@ -319,12 +373,12 @@ export default function ProductTable({
         headerRow.push("Tarif Pajak", "Nominal Pajak (Rp)", "COGS + Pajak (Rp)");
       }
 
-      headerRow.push(
-        `Harga Jual (${q1Label} unit - Margin ${margin1}%)`,
-        `Margin Aktual (${q1Label} unit)`,
-        `Harga Jual (${q2Label} unit - Margin ${margin2}%)`,
-        `Margin Aktual (${q2Label} unit)`
-      );
+      for (let i = 0; i < NUM_SCENARIOS; i++) {
+        headerRow.push(
+          `Harga Jual (${qtyLabels[i]} unit - Margin ${margins[i]}%)`,
+          `Margin Aktual (${qtyLabels[i]} unit)`
+        );
+      }
 
       const dataRows = enrichedData.map((row, idx) => {
         const item = [
@@ -344,12 +398,12 @@ export default function ProductTable({
           );
         }
 
-        const p1Val = typeof row._rawPrice1 === "number" ? Math.round(row._rawPrice1) : 0;
-        const m1Pct = row._m1 !== undefined && !isNaN(row._m1) ? `${(row._m1 * 100).toFixed(1)}%` : "-";
-        const p2Val = typeof row._rawPrice2 === "number" ? Math.round(row._rawPrice2) : 0;
-        const m2Pct = row._m2 !== undefined && !isNaN(row._m2) ? `${(row._m2 * 100).toFixed(1)}%` : "-";
+        for (let i = 0; i < NUM_SCENARIOS; i++) {
+          const pVal = typeof row[`_rawPrice${i}`] === "number" ? Math.round(row[`_rawPrice${i}`]) : 0;
+          const mPct = row[`_m${i}`] !== undefined && !isNaN(row[`_m${i}`]) ? `${(row[`_m${i}`] * 100).toFixed(1)}%` : "-";
+          item.push(pVal, mPct);
+        }
 
-        item.push(p1Val, m1Pct, p2Val, m2Pct);
         return item;
       });
 
@@ -366,9 +420,16 @@ export default function ProductTable({
     }
   };
 
+  const baseColCount = taxEnabled ? 7 : 5;
+
   return (
     <section className="card card-delay-2">
-      <h2 className="card-title">Produk dan hasil</h2>
+      <div className="table-header-flex">
+        <h2 className="card-title">
+          Produk dan hasil
+          <span className="counter-badge">{totalRows} produk</span>
+        </h2>
+      </div>
 
       {error && (
         <div className="error-alert" role="alert">
@@ -380,75 +441,165 @@ export default function ProductTable({
         <table className={taxEnabled ? "is-tax-active" : ""}>
           <thead>
             <tr className="header-group-row">
-              <th colSpan={taxEnabled ? 7 : 5} className="group-header group-header-base">
+              <th colSpan={baseColCount} className="group-header group-header-base">
                 Data Produk {taxEnabled ? "& Modal (+Pajak)" : "& Modal"}
               </th>
-              <th className="group-header group-header-s1" colSpan="2">
-                Skenario 1 ({q1Label} unit · Margin {margin1}%)
-              </th>
-              <th className="group-header group-header-s2" colSpan="2">
-                Skenario 2 ({q2Label} unit · Margin {margin2}%)
-              </th>
+              {Array.from({ length: NUM_SCENARIOS }, (_, i) => (
+                <th
+                  key={i}
+                  className={`group-header ${SCENARIO_COLORS[i].class}`}
+                  colSpan="2"
+                >
+                  S{i + 1} ({qtyLabels[i]} unit · {margins[i]}%)
+                </th>
+              ))}
               <th className="group-header group-header-action"></th>
             </tr>
-                <tr className="header-columns-row">
-                  <th className="col-penyedia text-center">Penyedia</th>
-                  <th className="col-stok">Stok</th>
-                  <th className="col-provider">Provider</th>
-                  <th className="col-kuota text-right">Kuota (GB)</th>
-                  <th className="col-cogs text-right">COGS (Rp)</th>
-                  {taxEnabled && (
-                    <>
-                      <th className="col-tax text-center">Pajak</th>
-                      <th className="col-cogs-tax text-right">COGS + Pajak</th>
-                    </>
-                  )}
+            <tr className="header-columns-row">
+              <th className="col-penyedia text-center">Penyedia</th>
+              <th className="col-stok">Stok</th>
+              <th className="col-provider">Provider</th>
+              <th className="col-kuota text-right">Kuota (GB)</th>
+              <th className="col-cogs text-right">COGS (Rp)</th>
+              {taxEnabled && (
+                <>
+                  <th className="col-tax text-center">Pajak</th>
+                  <th className="col-cogs-tax text-right">COGS + Pajak</th>
+                </>
+              )}
+              {Array.from({ length: NUM_SCENARIOS }, (_, i) => (
+                <React.Fragment key={i}>
                   <th className="col-price text-right">Harga Jual</th>
                   <th className="col-margin text-right">Margin</th>
-                  <th className="col-price text-right">Harga Jual</th>
-                  <th className="col-margin text-right">Margin</th>
-                  <th className="col-action text-center"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {enrichedData.map((row, i) => (
-                  <ProductRow
-                    key={i}
-                    row={row}
-                    index={i}
-                    onUpdate={onUpdate}
-                    onDelete={onDelete}
-                    taxEnabled={taxEnabled}
-                  />
-                ))}
-              </tbody>
-            </table>
+                </React.Fragment>
+              ))}
+              <th className="col-action text-center"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayedRows.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={baseColCount + NUM_SCENARIOS * 2 + 1}
+                  style={{
+                    textAlign: "center",
+                    padding: "36px 16px",
+                    color: "var(--ink-muted)",
+                    fontSize: "14px",
+                  }}
+                >
+                  Belum ada data produk. Klik &quot;Tambah produk&quot; untuk menambahkan data.
+                </td>
+              </tr>
+            ) : (
+              displayedRows.map((row) => (
+                <ProductRow
+                  key={row._originalIndex}
+                  row={row}
+                  index={row._originalIndex}
+                  onUpdate={onUpdate}
+                  onDelete={onDelete}
+                  taxEnabled={taxEnabled}
+                />
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Table Pagination Bar */}
+      <div className="table-pagination-bar">
+        <div className="pagination-info">
+          Menampilkan <strong>{totalRows > 0 ? startIndex + 1 : 0} - {endIndex}</strong> dari{" "}
+          <strong>{totalRows}</strong> produk
+        </div>
+
+        <div className="pagination-controls-wrapper">
+          <div className="pagination-size-select">
+            <label htmlFor="pageSizeSelect">Tampilkan:</label>
+            <select
+              id="pageSizeSelect"
+              value={pageSize}
+              onChange={(e) => {
+                const val = e.target.value === "all" ? "all" : Number(e.target.value);
+                setPageSize(val);
+                setCurrentPage(1);
+              }}
+            >
+              <option value={10}>10 baris</option>
+              <option value={25}>25 baris</option>
+              <option value={50}>50 baris</option>
+              <option value="all">Semua baris</option>
+            </select>
           </div>
 
-          <div className="button-bar">
-            <button className="btn btn-primary" onClick={onAdd}>
-              Tambah produk
-            </button>
-            <button
-              className="btn btn-success"
-              onClick={handleDownloadExcel}
-              disabled={isExporting}
-              title="Unduh data tabel dalam format spreadsheet Excel (.xlsx)"
-            >
-              {isExporting ? "Mengunduh..." : "Download Excel (.xlsx)"}
-            </button>
-            <button
-              className="btn"
-              onClick={handleDownloadCSV}
-              disabled={isExporting}
-              title="Unduh data tabel dalam format CSV (.csv)"
-            >
-              Download CSV
-            </button>
-            <button className="btn" onClick={onReset}>
-              Kembalikan data awal
-            </button>
-          </div>
+          {!isAll && totalPages > 1 && (
+            <div className="pagination-pages">
+              <button
+                className="pagination-btn nav-btn"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                title="Halaman Sebelumnya"
+                aria-label="Sebelumnya"
+              >
+                ‹
+              </button>
+
+              {pageNumbers.map((num, idx) =>
+                num === "..." ? (
+                  <span key={`ellipsis-${idx}`} className="pagination-ellipsis">
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={num}
+                    className={`pagination-btn ${currentPage === num ? "active" : ""}`}
+                    onClick={() => setCurrentPage(num)}
+                    aria-current={currentPage === num ? "page" : undefined}
+                  >
+                    {num}
+                  </button>
+                )
+              )}
+
+              <button
+                className="pagination-btn nav-btn"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                title="Halaman Berikutnya"
+                aria-label="Berikutnya"
+              >
+                ›
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="button-bar">
+        <button className="btn btn-primary" onClick={handleAddProduct}>
+          Tambah produk
+        </button>
+        <button
+          className="btn btn-success"
+          onClick={handleDownloadExcel}
+          disabled={isExporting}
+          title="Unduh data tabel dalam format spreadsheet Excel (.xlsx)"
+        >
+          {isExporting ? "Mengunduh..." : "Download Excel (.xlsx)"}
+        </button>
+        <button
+          className="btn"
+          onClick={handleDownloadCSV}
+          disabled={isExporting}
+          title="Unduh data tabel dalam format CSV (.csv)"
+        >
+          Download CSV
+        </button>
+        <button className="btn" onClick={onReset}>
+          Kembalikan data awal
+        </button>
+      </div>
 
       {children}
     </section>

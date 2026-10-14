@@ -11,9 +11,9 @@ export default function NotesSection() {
         , dibulatkan ke nominal Rupiah bulat terdekat (tanpa desimal).
       </p>
       <p>
-        <strong>Dua Skenario Penjualan:</strong>
+        <strong>Lima Skenario Penjualan:</strong>
         <br />
-        Skenario 1 dan Skenario 2 memiliki pengaturan target margin dan volume unit masing-masing (misalnya Skenario 1 dengan margin 30% untuk volume reguler, dan Skenario 2 dengan margin 25% untuk kuantiti lebih besar). Dengan margin terpisah ini, harga jual otomatis berbeda menyesuaikan strategi penjualan Anda.
+        Setiap skenario memiliki pengaturan target margin dan volume unit masing-masing. Dengan margin terpisah untuk 5 tingkat volume, harga jual otomatis berbeda menyesuaikan strategi penjualan Anda (misalnya margin lebih tinggi untuk volume kecil, margin lebih rendah untuk volume besar).
       </p>
       <p>
         <strong>Ketentuan Pajak (Tax):</strong>

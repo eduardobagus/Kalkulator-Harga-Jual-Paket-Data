@@ -1,86 +1,106 @@
 "use client";
 
+const DEFAULT_MARGINS = ["30", "25", "20", "15", "10"];
+const DEFAULT_QUANTITIES = ["100", "150", "200", "300", "500"];
+
 export default function AssumptionsPanel({
-  margin1,
-  setMargin1,
-  qty1,
-  setQty1,
-  margin2,
-  setMargin2,
-  qty2,
-  setQty2,
+  margins = DEFAULT_MARGINS,
+  setMargins,
+  quantities = DEFAULT_QUANTITIES,
+  setQuantities,
   taxEnabled,
   setTaxEnabled,
 }) {
+  const safeMargins = Array.isArray(margins) ? margins : DEFAULT_MARGINS;
+  const safeQuantities = Array.isArray(quantities) ? quantities : DEFAULT_QUANTITIES;
+
+  const handleMarginChange = (index, value) => {
+    const next = [...safeMargins];
+    next[index] = value;
+    setMargins(next);
+  };
+
+  const handleQtyChange = (index, value) => {
+    const next = [...safeQuantities];
+    next[index] = value;
+    setQuantities(next);
+  };
+
   return (
     <section className="card card-delay-1">
-      <h2 className="card-title">Asumsi</h2>
-      <div className="input-grid">
-        <div className="input-group">
-          <label htmlFor="margin1">Target margin skenario 1</label>
-          <div className="input-wrapper">
-            <input
-              id="margin1"
-              type="number"
-              value={margin1}
-              onChange={(e) => setMargin1(e.target.value)}
-              min="0"
-              max="99"
-              step="0.5"
-            />
-            <span className="input-suffix">%</span>
-          </div>
-          <div className="input-hint">Target margin untuk skenario 1</div>
-        </div>
+      <div className="card-header-flex">
+        <h2 className="card-title">Margin</h2>
+        <span className="assumptions-hint-badge">5 Tingkat Margin & Volume</span>
+      </div>
 
-        <div className="input-group">
-          <label htmlFor="qty1">Skenario penjualan 1</label>
-          <div className="input-wrapper">
-            <input
-              id="qty1"
-              type="number"
-              value={qty1}
-              onChange={(e) => setQty1(e.target.value)}
-              min="1"
-              step="1"
-            />
-            <span className="input-suffix">unit</span>
-          </div>
-          <div className="input-hint">Volume penjualan skenario 1</div>
-        </div>
-
-        <div className="input-group">
-          <label htmlFor="margin2">Target margin skenario 2</label>
-          <div className="input-wrapper">
-            <input
-              id="margin2"
-              type="number"
-              value={margin2}
-              onChange={(e) => setMargin2(e.target.value)}
-              min="0"
-              max="99"
-              step="0.5"
-            />
-            <span className="input-suffix">%</span>
-          </div>
-          <div className="input-hint">Target margin untuk skenario 2</div>
-        </div>
-
-        <div className="input-group">
-          <label htmlFor="qty2">Skenario penjualan 2</label>
-          <div className="input-wrapper">
-            <input
-              id="qty2"
-              type="number"
-              value={qty2}
-              onChange={(e) => setQty2(e.target.value)}
-              min="1"
-              step="1"
-            />
-            <span className="input-suffix">unit</span>
-          </div>
-          <div className="input-hint">Volume penjualan skenario 2</div>
-        </div>
+      <div className="assumptions-table-wrapper">
+        <table className="assumptions-compact-table">
+          <thead>
+            <tr>
+              <th className="th-scenario">Skenario</th>
+              <th className="th-margin">Target Margin</th>
+              <th className="th-qty">Volume Penjualan</th>
+            </tr>
+          </thead>
+          <tbody>
+            {safeMargins.map((margin, i) => {
+              const scenarioColors = [
+                { color: "var(--accent-light)", dot: "var(--accent)" },
+                { color: "#38bdf8", dot: "#38bdf8" },
+                { color: "#a78bfa", dot: "#a78bfa" },
+                { color: "#fb923c", dot: "#fb923c" },
+                { color: "#f472b6", dot: "#f472b6" },
+              ];
+              const sc = scenarioColors[i] || scenarioColors[0];
+              return (
+                <tr key={i} className={`assumption-row assumption-row-s${i + 1}`}>
+                  <td className="td-scenario">
+                    <div className="scenario-tag">
+                      <span
+                        className="scenario-bullet"
+                        style={{ backgroundColor: sc.dot, boxShadow: `0 0 8px ${sc.dot}88` }}
+                      />
+                      <span className="scenario-name" style={{ color: sc.color }}>
+                        Skenario {i + 1}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="td-margin">
+                    <div className="input-wrapper compact-wrapper">
+                      <input
+                        id={`margin${i + 1}`}
+                        type="number"
+                        value={margin}
+                        onChange={(e) => handleMarginChange(i, e.target.value)}
+                        min="0"
+                        max="99"
+                        step="0.5"
+                        placeholder="0"
+                        aria-label={`Target margin skenario ${i + 1}`}
+                      />
+                      <span className="input-suffix">%</span>
+                    </div>
+                  </td>
+                  <td className="td-qty">
+                    <div className="input-wrapper compact-wrapper">
+                      <input
+                        id={`qty${i + 1}`}
+                        type="number"
+                        value={safeQuantities[i] ?? ""}
+                        onChange={(e) => handleQtyChange(i, e.target.value)}
+                        min="1"
+                        step="1"
+                        placeholder="0"
+                        aria-label={`Volume penjualan skenario ${i + 1}`}
+                      />
+                      <span className="input-suffix">unit</span>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
       <div className="tax-section">
@@ -98,9 +118,8 @@ export default function AssumptionsPanel({
             <span className="tax-toggle-title">
               Hitung Pajak (Tax)
               <span
-                className={`badge ${
-                  taxEnabled ? "badge-success" : "badge-tax-off"
-                }`}
+                className={`badge ${taxEnabled ? "badge-success" : "badge-tax-off"
+                  }`}
               >
                 {taxEnabled ? "Aktif" : "Nonaktif"}
               </span>
