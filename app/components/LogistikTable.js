@@ -201,16 +201,21 @@ export default function LogistikTable({
   const startIndex = isAll ? 0 : (currentPage - 1) * effectivePageSize;
   const displayedItems = filteredItems.slice(startIndex, startIndex + effectivePageSize);
 
-  // Field change handler
-  const handleFieldChange = (originalIndex, field, value) => {
+  // Field change handler (supports single field or multi-field patch object)
+  const handleFieldChange = (originalIndex, fieldOrPatch, value) => {
     if (!onUpdate) return;
     const item = items[originalIndex];
     if (!item) return;
 
-    const updated = { ...item, [field]: value };
+    const patch =
+      typeof fieldOrPatch === "object" && fieldOrPatch !== null
+        ? fieldOrPatch
+        : { [fieldOrPatch]: value };
+
+    const updated = { ...item, ...patch };
 
     // Auto-calculate selling rate when publish_rate or markup_percentage changes
-    if (field === "publish_rate" || field === "markup_percentage") {
+    if ("publish_rate" in patch || "markup_percentage" in patch) {
       const p =
         updated.publish_rate !== "" && updated.publish_rate !== null ? parseFloat(updated.publish_rate) : null;
       const m = parseFloat(updated.markup_percentage) || 40;
@@ -671,8 +676,10 @@ export default function LogistikTable({
                           value={`${item.start_weight || 1}–${item.end_weight || 1000}`}
                           onChange={(e) => {
                             const parts = e.target.value.split(/[-–]/);
-                            if (parts[0]) handleFieldChange(actualIdx, "start_weight", parseFloat(parts[0]) || 1);
-                            if (parts[1]) handleFieldChange(actualIdx, "end_weight", parseFloat(parts[1]) || 1000);
+                            const patch = {};
+                            if (parts[0]) patch.start_weight = parseFloat(parts[0]) || 1;
+                            if (parts[1]) patch.end_weight = parseFloat(parts[1]) || 1000;
+                            handleFieldChange(actualIdx, patch);
                           }}
                         />
                       </td>

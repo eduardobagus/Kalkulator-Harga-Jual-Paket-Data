@@ -164,20 +164,25 @@ export default function CloudsimTable({
   const startIndex = isAll ? 0 : (currentPage - 1) * effectivePageSize;
   const displayedItems = filteredItems.slice(startIndex, startIndex + effectivePageSize);
 
-  // Field change handler
-  const handleFieldChange = (originalIndex, field, value) => {
+  // Field change handler (supports single field or multi-field patch object)
+  const handleFieldChange = (originalIndex, fieldOrPatch, value) => {
     if (!onUpdate) return;
     const item = items[originalIndex];
     if (!item) return;
 
-    const updated = { ...item, [field]: value };
+    const patch =
+      typeof fieldOrPatch === "object" && fieldOrPatch !== null
+        ? fieldOrPatch
+        : { [fieldOrPatch]: value };
+
+    const updated = { ...item, ...patch };
 
     // Auto-calculate COGS and SP if cost components or margin changes
     if (
-      field === "licence_fee" ||
-      field === "simbank" ||
-      field === "quota_price" ||
-      field === "margin_pct"
+      "licence_fee" in patch ||
+      "simbank" in patch ||
+      "quota_price" in patch ||
+      "margin_pct" in patch
     ) {
       const l = updated.licence_fee !== "" && updated.licence_fee !== null ? parseFloat(updated.licence_fee) : null;
       const s = updated.simbank !== "" && updated.simbank !== null ? parseFloat(updated.simbank) : null;

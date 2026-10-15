@@ -156,25 +156,26 @@ export default function RouterTable({
   const startIndex = isAll ? 0 : (currentPage - 1) * effectivePageSize;
   const displayedItems = filteredItems.slice(startIndex, startIndex + effectivePageSize);
 
-  // Field change handler
-  const handleFieldChange = (originalIndex, field, value) => {
+  // Field change handler (supports single field or multi-field patch object)
+  const handleFieldChange = (originalIndex, fieldOrPatch, value) => {
     if (!onUpdate) return;
     const item = items[originalIndex];
     if (!item) return;
 
-    const updated = { ...item, [field]: value };
+    const patch =
+      typeof fieldOrPatch === "object" && fieldOrPatch !== null
+        ? fieldOrPatch
+        : { [fieldOrPatch]: value };
+
+    const updated = { ...item, ...patch };
+
     // Recalculate SP & GP live if margin or COGS RTS changes
-    if (field === "cogs_rts" || field === "margin_pct") {
+    if ("cogs_rts" in patch || "margin_pct" in patch) {
       const rts =
-        field === "cogs_rts"
-          ? value !== "" && value !== null
-            ? parseFloat(value)
-            : null
-          : updated.cogs_rts !== null && updated.cogs_rts !== ""
+        updated.cogs_rts !== null && updated.cogs_rts !== "" && !isNaN(parseFloat(updated.cogs_rts))
           ? parseFloat(updated.cogs_rts)
           : null;
-      const mPct =
-        field === "margin_pct" ? parseFloat(value) || 0 : parseFloat(updated.margin_pct) || 0;
+      const mPct = parseFloat(updated.margin_pct) || 0;
 
       if (rts !== null && rts > 0 && mPct < 100) {
         const raw = rts / (1 - mPct / 100);
@@ -500,11 +501,14 @@ export default function RouterTable({
                           value={item.jenis_transaksi || "Beli Putus"}
                           onChange={(e) => {
                             const val = e.target.value;
-                            handleFieldChange(actualIdx, "jenis_transaksi", val);
-                            handleFieldChange(actualIdx, "kategori", val);
+                            const patch = {
+                              jenis_transaksi: val,
+                              kategori: val,
+                            };
                             if (val === "Sewa" && !item.jangka_waktu_sewa) {
-                              handleFieldChange(actualIdx, "jangka_waktu_sewa", 12);
+                              patch.jangka_waktu_sewa = 12;
                             }
+                            handleFieldChange(actualIdx, patch);
                           }}
                         >
                           <option value="Beli Putus">Beli Putus</option>
@@ -539,8 +543,10 @@ export default function RouterTable({
                           value={`${item.min_qty || 1}–${item.max_qty || 9}`}
                           onChange={(e) => {
                             const parts = e.target.value.split(/[-–]/);
-                            if (parts[0]) handleFieldChange(actualIdx, "min_qty", parseInt(parts[0], 10) || 1);
-                            if (parts[1]) handleFieldChange(actualIdx, "max_qty", parseInt(parts[1], 10) || 9);
+                            const patch = {};
+                            if (parts[0]) patch.min_qty = parseInt(parts[0], 10) || 1;
+                            if (parts[1]) patch.max_qty = parseInt(parts[1], 10) || 9;
+                            handleFieldChange(actualIdx, patch);
                           }}
                         />
                       </td>

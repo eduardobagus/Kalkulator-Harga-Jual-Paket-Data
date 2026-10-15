@@ -134,18 +134,24 @@ export default function EdcTable({
   const startIndex = isAll ? 0 : (currentPage - 1) * effectivePageSize;
   const displayedItems = filteredItems.slice(startIndex, startIndex + effectivePageSize);
 
-  // Field change handler
-  const handleFieldChange = (originalIndex, field, value) => {
+  // Field change handler (supports single field or multi-field patch object)
+  const handleFieldChange = (originalIndex, fieldOrPatch, value) => {
     if (!onUpdate) return;
     const item = items[originalIndex];
     if (!item) return;
 
-    const updated = { ...item, [field]: value };
+    const patch =
+      typeof fieldOrPatch === "object" && fieldOrPatch !== null
+        ? fieldOrPatch
+        : { [fieldOrPatch]: value };
+
+    const updated = { ...item, ...patch };
+
     // Auto-update calculations if SP, fee %, or sim qty changes
-    if (field === "selling_price" || field === "referral_fee_pct" || field === "simulation_qty") {
-      const sp = parseFloat(field === "selling_price" ? value : updated.selling_price) || 0;
-      const feePct = parseFloat(field === "referral_fee_pct" ? value : updated.referral_fee_pct) || 0;
-      const simQty = parseInt(field === "simulation_qty" ? value : updated.simulation_qty, 10) || 1;
+    if ("selling_price" in patch || "referral_fee_pct" in patch || "simulation_qty" in patch) {
+      const sp = parseFloat(updated.selling_price) || 0;
+      const feePct = parseFloat(updated.referral_fee_pct) || 0;
+      const simQty = parseInt(updated.simulation_qty, 10) || 1;
       updated.referral_fee_per_unit = Math.round(sp * (feePct / 100));
       updated.total_referral_fee = updated.referral_fee_per_unit * simQty;
     }
@@ -431,12 +437,10 @@ export default function EdcTable({
                           value={item.kategori}
                           onChange={(e) => {
                             const val = e.target.value;
-                            handleFieldChange(actualIdx, "kategori", val);
-                            handleFieldChange(
-                              actualIdx,
-                              "tipe_transaksi",
-                              val.includes("Rent") ? "MONTHLY_RENT" : "ONE_TIME"
-                            );
+                            handleFieldChange(actualIdx, {
+                              kategori: val,
+                              tipe_transaksi: val.includes("Rent") ? "MONTHLY_RENT" : "ONE_TIME",
+                            });
                           }}
                         >
                           <option value="EDC — One Time Charge">EDC — One Time Charge</option>
@@ -459,8 +463,10 @@ export default function EdcTable({
                           value={`${item.tier_min_qty || 1}–${item.tier_max_qty || 200}`}
                           onChange={(e) => {
                             const parts = e.target.value.split(/[-–]/);
-                            if (parts[0]) handleFieldChange(actualIdx, "tier_min_qty", parseInt(parts[0], 10) || 1);
-                            if (parts[1]) handleFieldChange(actualIdx, "tier_max_qty", parseInt(parts[1], 10) || 200);
+                            const patch = {};
+                            if (parts[0]) patch.tier_min_qty = parseInt(parts[0], 10) || 1;
+                            if (parts[1]) patch.tier_max_qty = parseInt(parts[1], 10) || 200;
+                            handleFieldChange(actualIdx, patch);
                           }}
                         />
                       </td>
