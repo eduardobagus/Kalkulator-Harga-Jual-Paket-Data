@@ -634,7 +634,12 @@ export default function CloudsimTable({
                           type="button"
                           className="tbl-delete-btn"
                           title="Hapus baris"
-                          onClick={() => onDelete && onDelete(actualIdx)}
+                          onClick={() => {
+                            const name = item.tipe_cloudsim ? `"${item.tipe_cloudsim}"` : "paket ini";
+                            if (window.confirm(`Apakah Anda yakin ingin menghapus data Cloudsim ${name}?`)) {
+                              onDelete && onDelete(actualIdx);
+                            }
+                          }}
                         >
                           ✕
                         </button>

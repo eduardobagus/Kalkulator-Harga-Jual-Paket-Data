@@ -520,7 +520,14 @@ export default function EdcTable({
                           type="button"
                           className="tbl-delete-btn"
                           title="Hapus baris"
-                          onClick={() => onDelete && onDelete(actualIdx)}
+                          onClick={() => {
+                            const desc = item.spec_type
+                              ? `"${item.kategori} (${item.spec_type})"`
+                              : `"${item.kategori || "produk ini"}"`;
+                            if (window.confirm(`Apakah Anda yakin ingin menghapus data EDC ${desc}?`)) {
+                              onDelete && onDelete(actualIdx);
+                            }
+                          }}
                         >
                           ✕
                         </button>

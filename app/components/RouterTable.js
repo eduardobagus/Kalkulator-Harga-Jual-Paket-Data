@@ -614,7 +614,12 @@ export default function RouterTable({
                           type="button"
                           className="tbl-delete-btn"
                           title="Hapus baris"
-                          onClick={() => onDelete && onDelete(actualIdx)}
+                          onClick={() => {
+                            const name = item.nama_produk ? `"${item.nama_produk}"` : "produk ini";
+                            if (window.confirm(`Apakah Anda yakin ingin menghapus data router ${name}?`)) {
+                              onDelete && onDelete(actualIdx);
+                            }
+                          }}
                         >
                           ✕
                         </button>
