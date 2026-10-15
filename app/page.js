@@ -7,6 +7,7 @@ import AssumptionsPanel from "./components/AssumptionsPanel";
 import ProductTable from "./components/ProductTable";
 import ImportSection from "./components/ImportSection";
 import NotesSection from "./components/NotesSection";
+import SheetsSync from "./components/SheetsSync";
 
 const STORAGE_KEY_PRODUCTS = "kalkulator_products";
 const STORAGE_KEY_ASSUMPTIONS = "kalkulator_assumptions";
@@ -33,6 +34,7 @@ export default function Home() {
   // Ref to track whether local edits occurred after initial load
   const isInitialLoadDone = useRef(false);
   const saveTimeoutRef = useRef(null);
+  const inFlightAbortRef = useRef(null);
 
   // 1. Load initial data from backend PostgreSQL (with fallback to localStorage)
   useEffect(() => {
@@ -127,7 +129,7 @@ export default function Home() {
     };
   }, []);
 
-  // 2. Auto-save products & assumptions to PostgreSQL (debounced 600ms)
+  // 2. Auto-save products & assumptions to PostgreSQL (debounced 600ms via unified /api/sync)
   useEffect(() => {
     if (!isLoaded || !isInitialLoadDone.current) return;
 
@@ -140,6 +142,11 @@ export default function Home() {
       );
     } catch {}
 
+    // Abort previous in-flight save request if any
+    if (inFlightAbortRef.current) {
+      inFlightAbortRef.current.abort();
+    }
+
     // Debounce save to PostgreSQL
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -149,34 +156,44 @@ export default function Home() {
     setDbMessage("Menyimpan perubahan ke PostgreSQL...");
 
     saveTimeoutRef.current = setTimeout(async () => {
+      const abortController = new AbortController();
+      inFlightAbortRef.current = abortController;
+
       try {
-        // Save products and assumptions concurrently
-        const [prodSaveRes, assumpSaveRes] = await Promise.all([
-          fetch("/api/products", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ rows: data, margins, quantities }),
-          }),
-          fetch("/api/assumptions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ margins, quantities, taxEnabled }),
-          }),
-        ]);
+        const syncRes = await fetch("/api/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: data, margins, quantities, taxEnabled }),
+          signal: abortController.signal,
+        });
 
-        const prodResult = await prodSaveRes.json();
-        const assumpResult = await assumpSaveRes.json();
+        const syncResult = await syncRes.json();
 
-        if (prodResult.success && assumpResult.success) {
+        if (syncResult.success) {
           setDbStatus("saved");
           setDbMessage(`Tersimpan di database PostgreSQL (${data.length} produk)`);
+
+          // Auto-push to Google Sheets (fire-and-forget)
+          fetch("/api/sheets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rows: data, margins, quantities, taxEnabled }),
+          }).catch(() => {
+            // Silently ignore Sheets sync errors
+          });
         } else {
-          throw new Error(prodResult.error || assumpResult.error || "Gagal menyimpan");
+          console.warn("Sinkronisasi database gagal:", syncResult.error);
+          setDbStatus("offline");
+          setDbMessage("Tersimpan di browser (sinkronisasi DB tertunda)");
         }
       } catch (err) {
-        console.error("Gagal menyimpan ke PostgreSQL:", err);
+        if (err.name === "AbortError") {
+          // Request was replaced by a newer save, do nothing
+          return;
+        }
+        console.warn("Gagal menyimpan ke PostgreSQL:", err);
         setDbStatus("offline");
-        setDbMessage("Gagal simpan ke DB (tersimpan di browser)");
+        setDbMessage("Tersimpan di browser (koneksi offline)");
       }
     }, 600);
 
@@ -251,6 +268,22 @@ export default function Home() {
     }
   }, []);
 
+  // Handle pull from Google Sheets (2-way sync)
+  const handleSheetsPull = useCallback(({ rows, margins: m, quantities: q, taxEnabled: t }) => {
+    if (Array.isArray(rows) && rows.length > 0) {
+      setData(rows);
+    }
+    if (Array.isArray(m) && m.length === NUM_SCENARIOS) {
+      setMargins(m.map(String));
+    }
+    if (Array.isArray(q) && q.length === NUM_SCENARIOS) {
+      setQuantities(q.map(String));
+    }
+    if (t !== null && t !== undefined) {
+      setTaxEnabled(Boolean(t));
+    }
+  }, []);
+
   return (
     <>
       <ThemeToggle />
@@ -300,6 +333,14 @@ export default function Home() {
         >
           <ImportSection onImport={handleImport} />
         </ProductTable>
+
+        <SheetsSync
+          data={data}
+          margins={margins}
+          quantities={quantities}
+          taxEnabled={taxEnabled}
+          onPull={handleSheetsPull}
+        />
 
         <NotesSection />
       </main>

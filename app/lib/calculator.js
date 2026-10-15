@@ -92,27 +92,99 @@ export function calculatePrice(cogs, margin, taxRate = 0) {
 }
 
 // Column alias map for import detection
-const ALIAS = {
-  0: ["penyedia produk", "penyedia"],
-  1: ["stock availability", "stok", "stock"],
-  2: ["provider"],
-  3: ["package quota (gb)", "package quota", "kuota (gb)", "kuota", "quota"],
-  4: ["cogs", "hpp", "cost"],
+export const ALIAS = {
+  0: [
+    "penyedia produk",
+    "penyedia",
+    "vendor",
+    "supplier",
+    "provider source",
+  ],
+  1: [
+    "status stok",
+    "status stock",
+    "stock availability",
+    "stok availability",
+    "stok",
+    "stock",
+    "status",
+    "availability",
+  ],
+  2: [
+    "provider / nama paket",
+    "provider/nama paket",
+    "provider / paket",
+    "provider / nama produk",
+    "nama paket",
+    "nama provider",
+    "nama produk",
+    "nama paket data",
+    "provider",
+    "paket",
+    "produk",
+    "package",
+    "package name",
+    "product",
+  ],
+  3: [
+    "package quota (gb)",
+    "package quota",
+    "kuota (gb)",
+    "kuota gb",
+    "kuota",
+    "quota (gb)",
+    "quota gb",
+    "quota",
+    "gb",
+  ],
+  4: [
+    "cogs (rp)",
+    "cogs rp",
+    "cogs",
+    "hpp (rp)",
+    "hpp rp",
+    "hpp",
+    "modal (rp)",
+    "modal rp",
+    "modal",
+    "cost (rp)",
+    "cost",
+    "harga modal",
+    "cogs_rp",
+  ],
 };
+
+function normalizeHeader(str) {
+  return String(str ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 /**
  * Detect column mapping from header row.
  */
 export function detectColumnMap(headerRow) {
   const map = {};
+  if (!Array.isArray(headerRow)) return map;
+
   headerRow.forEach((cell, i) => {
-    const key = String(cell ?? "").trim().toLowerCase();
+    const raw = normalizeHeader(cell);
+    if (!raw) return;
+
     for (const field in ALIAS) {
-      if (ALIAS[field].includes(key) && map[field] === undefined) {
-        map[field] = i;
+      if (
+        ALIAS[field].some(
+          (alias) => raw === alias || raw.startsWith(alias) || alias.startsWith(raw)
+        )
+      ) {
+        if (map[field] === undefined) {
+          map[field] = i;
+        }
       }
     }
   });
+
   return map;
 }
 
@@ -135,9 +207,12 @@ export function parseNum(value) {
 }
 
 /**
- * Parse delimited text (CSV/TSV) with quote handling.
+ * Parse delimited text (CSV/TSV) with quote handling and UTF-8 BOM removal.
  */
-export function parseDelimited(text) {
+export function parseDelimited(rawText) {
+  // Strip UTF-8 BOM if present
+  const text = String(rawText || "").replace(/^\uFEFF/, "");
+
   const firstLine = text.split(/\r?\n/)[0] || "";
   const delim =
     firstLine.indexOf("\t") > -1
@@ -195,19 +270,48 @@ export function parseDelimited(text) {
 export function processImportRows(rows) {
   const nonEmpty = rows
     .map((r, i) => ({ row: r, lineNum: i + 1 }))
-    .filter((o) => o.row.some((c) => String(c ?? "").trim() !== ""));
+    .filter((o) => Array.isArray(o.row) && o.row.some((c) => String(c ?? "").trim() !== ""));
 
   if (!nonEmpty.length) {
     return { added: [], errors: ["Tidak ada data yang terbaca."] };
   }
 
-  let colMap = detectColumnMap(nonEmpty[0].row);
+  // Scan the first few rows (up to 10) to find the best matching header row
+  let bestMap = {};
+  let bestHeaderIndex = -1;
+  let maxMatched = 0;
+
+  const maxScan = Math.min(nonEmpty.length, 10);
+  for (let idx = 0; idx < maxScan; idx++) {
+    const candidateMap = detectColumnMap(nonEmpty[idx].row);
+    const countMatched = Object.keys(candidateMap).length;
+    if (countMatched > maxMatched) {
+      maxMatched = countMatched;
+      bestMap = candidateMap;
+      bestHeaderIndex = idx;
+      if (countMatched >= 5) break;
+    }
+  }
+
+  let colMap = bestMap;
   let startIndex = 1;
 
-  // If quota or cogs column not found, assume fixed order
-  if (colMap[3] === undefined || colMap[4] === undefined) {
-    colMap = { 0: 0, 1: 1, 2: 2, 3: 3, 4: 4 };
-    startIndex = isNaN(parseNum(nonEmpty[0].row[4])) ? 1 : 0;
+  if (maxMatched >= 3) {
+    startIndex = bestHeaderIndex + 1;
+  } else {
+    // If no header row found, check if first column is row numbering (e.g. 1, 2, 3...)
+    const firstRow = nonEmpty[0].row;
+    const col0IsNum = !isNaN(parseNum(firstRow[0])) && parseNum(firstRow[0]) < 1000;
+    const col1IsStatusOrPenyedia = ["DPT", "RTS", "OPEN", "CLOSED"].includes(
+      String(firstRow[1] || "").trim().toUpperCase()
+    );
+
+    if (col0IsNum && col1IsStatusOrPenyedia) {
+      colMap = { 0: 1, 1: 2, 2: 3, 3: 4, 4: 5 };
+    } else {
+      colMap = { 0: 0, 1: 1, 2: 2, 3: 3, 4: 4 };
+    }
+    startIndex = isNaN(parseNum(firstRow[colMap[4]])) ? 1 : 0;
   }
 
   const added = [];
@@ -217,21 +321,24 @@ export function processImportRows(rows) {
     const r = o.row;
     const get = (f) => r[colMap[f]] ?? "";
 
-    const stok = String(get(1)).trim().toUpperCase() || "OPEN";
+    const rawStok = String(get(1)).trim().toUpperCase();
+    let stok = "OPEN";
+    if (rawStok === "CLOSED" || rawStok === "HABIS" || rawStok === "KOSONG") {
+      stok = "CLOSED";
+    }
+
     const kuota = parseNum(get(3));
     const cogs = parseNum(get(4));
 
-    if (stok !== "OPEN" && stok !== "CLOSED") {
-      errors.push(`Baris ${o.lineNum}: stok harus OPEN atau CLOSED`);
-    } else if (isNaN(kuota)) {
+    if (isNaN(kuota)) {
       errors.push(`Baris ${o.lineNum}: kuota (GB) bukan angka`);
     } else if (isNaN(cogs)) {
       errors.push(`Baris ${o.lineNum}: COGS bukan angka`);
     } else {
       added.push([
-        String(get(0)).trim(),
+        String(get(0)).trim() || "DPT",
         stok,
-        String(get(2)).trim(),
+        String(get(2)).trim() || "Paket",
         kuota,
         cogs,
       ]);

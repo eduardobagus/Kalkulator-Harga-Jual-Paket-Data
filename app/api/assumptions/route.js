@@ -62,7 +62,7 @@ export async function POST(request) {
 
       // 2. Synchronize all products' tiers in simcard_tier_harga
       if (Array.isArray(margins) && Array.isArray(quantities)) {
-        const prodRes = await client.query("SELECT id FROM simcard_produk");
+        const prodRes = await client.query("SELECT id FROM simcard_produk ORDER BY id ASC");
         for (const prod of prodRes.rows) {
           for (let t = 1; t <= 5; t++) {
             const minUnit = parseInt(quantities[t - 1], 10) || t * 100;
