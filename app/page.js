@@ -13,6 +13,8 @@ import EdcTable from "./components/EdcTable";
 import RouterTable from "./components/RouterTable";
 import CloudsimTable from "./components/CloudsimTable";
 import LogistikTable from "./components/LogistikTable";
+import DeleteConfirmModal from "./components/DeleteConfirmModal";
+import ToastAlert from "./components/ToastAlert";
 
 const STORAGE_KEY_PRODUCTS = "kalkulator_products";
 const STORAGE_KEY_ASSUMPTIONS = "kalkulator_assumptions";
@@ -429,6 +431,77 @@ export default function Home() {
     setModuleItems((prev) => [...prev, newItem]);
   }, []);
 
+  // Request deletion with confirmation modal
+  const [deleteModal, setDeleteModal] = useState({
+    isOpen: false,
+    index: null,
+    item: null,
+    productType: "simcard",
+  });
+
+  const [toast, setToast] = useState(null);
+
+  const handleRequestDelete = useCallback(
+    (index) => {
+      let targetItem = null;
+      if (activeProductType === "simcard") {
+        targetItem = data[index];
+      } else {
+        targetItem = moduleItems[index];
+      }
+
+      if (!targetItem) return;
+
+      setDeleteModal({
+        isOpen: true,
+        index,
+        item: targetItem,
+        productType: activeProductType,
+      });
+    },
+    [activeProductType, data, moduleItems]
+  );
+
+  const handleCloseDeleteModal = useCallback(() => {
+    setDeleteModal((prev) => ({ ...prev, isOpen: false, index: null, item: null }));
+  }, []);
+
+  const handleConfirmDelete = useCallback(() => {
+    if (deleteModal.index === null) return;
+    const { index, item, productType } = deleteModal;
+
+    let itemName = "Produk";
+    if (productType === "simcard" && Array.isArray(item)) {
+      itemName = item[2] || "Paket Simcard";
+    } else if (item) {
+      itemName =
+        item.nama_produk ||
+        item.kategori ||
+        item.tipe_cloudsim ||
+        (item.origin_city ? `${item.origin_city} ➔ ${item.destination_city}` : "Produk");
+    }
+
+    if (productType === "simcard") {
+      handleDeleteRow(index);
+    } else {
+      handleDeleteModuleItem(index);
+    }
+
+    setDeleteModal({
+      isOpen: false,
+      index: null,
+      item: null,
+      productType: "simcard",
+    });
+
+    setToast({
+      type: "danger",
+      title: "Data Berhasil Dihapus",
+      message: `Data "${itemName}" telah dihapus dari ${getProductTypeConfig(productType).label} dan database.`,
+      duration: 4000,
+    });
+  }, [deleteModal, handleDeleteRow, handleDeleteModuleItem]);
+
   const handleBatchUpdateModuleItems = useCallback((importedItems, replaceAll) => {
     if (replaceAll) {
       setModuleItems(importedItems);
@@ -495,7 +568,7 @@ export default function Home() {
             <ProductTable
               data={data}
               onUpdate={handleUpdateRow}
-              onDelete={handleDeleteRow}
+              onDelete={handleRequestDelete}
               onAdd={handleAddRow}
               onReset={handleReset}
               margins={margins}
@@ -529,7 +602,7 @@ export default function Home() {
           <EdcTable
             items={moduleItems}
             onUpdate={handleUpdateModuleItem}
-            onDelete={handleDeleteModuleItem}
+            onDelete={handleRequestDelete}
             onAdd={handleAddModuleItem}
             onBatchUpdate={handleBatchUpdateModuleItems}
             productType={activeProductType}
@@ -546,7 +619,7 @@ export default function Home() {
           <RouterTable
             items={moduleItems}
             onUpdate={handleUpdateModuleItem}
-            onDelete={handleDeleteModuleItem}
+            onDelete={handleRequestDelete}
             onAdd={handleAddModuleItem}
             onBatchUpdate={handleBatchUpdateModuleItems}
             productType={activeProductType}
@@ -563,7 +636,7 @@ export default function Home() {
           <CloudsimTable
             items={moduleItems}
             onUpdate={handleUpdateModuleItem}
-            onDelete={handleDeleteModuleItem}
+            onDelete={handleRequestDelete}
             onAdd={handleAddModuleItem}
             onBatchUpdate={handleBatchUpdateModuleItems}
             productType={activeProductType}
@@ -580,7 +653,7 @@ export default function Home() {
           <LogistikTable
             items={moduleItems}
             onUpdate={handleUpdateModuleItem}
-            onDelete={handleDeleteModuleItem}
+            onDelete={handleRequestDelete}
             onAdd={handleAddModuleItem}
             onBatchUpdate={handleBatchUpdateModuleItems}
             productType={activeProductType}
@@ -591,6 +664,20 @@ export default function Home() {
             }}
           />
         )}
+
+        {/* Delete Confirmation Modal */}
+        <DeleteConfirmModal
+          isOpen={deleteModal.isOpen}
+          onClose={handleCloseDeleteModal}
+          onConfirm={handleConfirmDelete}
+          item={deleteModal.item}
+          productType={deleteModal.productType}
+        />
+
+        {/* Floating Toast Alert */}
+        <div className="floating-toast-container">
+          <ToastAlert toast={toast} onClose={() => setToast(null)} />
+        </div>
       </main>
     </>
   );

@@ -728,15 +728,7 @@ export default function LogistikTable({
                           type="button"
                           className="tbl-delete-btn"
                           title="Hapus baris"
-                          onClick={() => {
-                            const routeName =
-                              item.origin_city && item.destination_city
-                                ? `rute "${item.origin_city} → ${item.destination_city}"`
-                                : "rute pengiriman ini";
-                            if (window.confirm(`Apakah Anda yakin ingin menghapus data logistik ${routeName}?`)) {
-                              onDelete && onDelete(actualIdx);
-                            }
-                          }}
+                          onClick={() => onDelete && onDelete(actualIdx)}
                         >
                           ✕
                         </button>

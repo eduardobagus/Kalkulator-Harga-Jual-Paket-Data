@@ -227,12 +227,7 @@ function ProductRow({
       <td className="col-action text-center">
         <button
           className="tbl-btn-del"
-          onClick={() => {
-            const productName = row[2] ? `"${row[2]}"` : "produk ini";
-            if (window.confirm(`Apakah Anda yakin ingin menghapus data ${productName}?`)) {
-              onDelete(index);
-            }
-          }}
+          onClick={() => onDelete(index)}
           title="Hapus baris"
           aria-label="Hapus baris"
         >
