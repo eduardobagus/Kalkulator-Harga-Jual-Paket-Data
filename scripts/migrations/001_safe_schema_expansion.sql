@@ -1,0 +1,62 @@
+-- Migration 001: Safe Non-Destructive Schema Expansion for Multi-Product Calculator
+-- Adds domain-specific columns to edc_referral_produk, router_produk, cloudsim_produk, logistik_produk.
+-- Does NOT drop tables, does NOT truncate data, does NOT alter simcard_produk.
+
+-- 1. EDC Referral Products
+ALTER TABLE edc_referral_produk
+  ADD COLUMN IF NOT EXISTS tipe_transaksi TEXT DEFAULT 'ONE_TIME',
+  ADD COLUMN IF NOT EXISTS spec_type TEXT,
+  ADD COLUMN IF NOT EXISTS tier_min_qty INTEGER DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS tier_max_qty INTEGER DEFAULT 200,
+  ADD COLUMN IF NOT EXISTS selling_price NUMERIC DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS referral_fee_pct NUMERIC DEFAULT 5,
+  ADD COLUMN IF NOT EXISTS referral_fee_per_unit NUMERIC DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS simulation_qty INTEGER DEFAULT 200,
+  ADD COLUMN IF NOT EXISTS total_referral_fee NUMERIC DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+
+-- 2. Router Products
+ALTER TABLE router_produk
+  ADD COLUMN IF NOT EXISTS nama_produk TEXT,
+  ADD COLUMN IF NOT EXISTS jenis_transaksi TEXT DEFAULT 'Beli Putus',
+  ADD COLUMN IF NOT EXISTS jangka_waktu_sewa INTEGER,
+  ADD COLUMN IF NOT EXISTS min_qty INTEGER DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS max_qty INTEGER DEFAULT 9,
+  ADD COLUMN IF NOT EXISTS cogs_cku NUMERIC,
+  ADD COLUMN IF NOT EXISTS cogs_rts NUMERIC,
+  ADD COLUMN IF NOT EXISTS margin_pct NUMERIC DEFAULT 45,
+  ADD COLUMN IF NOT EXISTS selling_price NUMERIC,
+  ADD COLUMN IF NOT EXISTS gross_profit NUMERIC,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+
+-- 3. Cloudsim Products
+ALTER TABLE cloudsim_produk
+  ADD COLUMN IF NOT EXISTS tipe_cloudsim TEXT,
+  ADD COLUMN IF NOT EXISTS jumlah_provider INTEGER DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS negara TEXT DEFAULT 'Domestik',
+  ADD COLUMN IF NOT EXISTS package_quota_gb NUMERIC DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS licence_fee NUMERIC,
+  ADD COLUMN IF NOT EXISTS simbank NUMERIC,
+  ADD COLUMN IF NOT EXISTS quota_price NUMERIC,
+  ADD COLUMN IF NOT EXISTS margin_pct NUMERIC DEFAULT 30,
+  ADD COLUMN IF NOT EXISTS bottom_line_pct NUMERIC DEFAULT 20,
+  ADD COLUMN IF NOT EXISTS selling_price NUMERIC,
+  ADD COLUMN IF NOT EXISTS status_kelengkapan TEXT DEFAULT 'Lengkap',
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+
+-- 4. Logistik Products
+ALTER TABLE logistik_produk
+  ADD COLUMN IF NOT EXISTS origin_city_code TEXT,
+  ADD COLUMN IF NOT EXISTS origin_city TEXT,
+  ADD COLUMN IF NOT EXISTS destination_city_code TEXT,
+  ADD COLUMN IF NOT EXISTS destination_city TEXT,
+  ADD COLUMN IF NOT EXISTS service_type TEXT DEFAULT 'package',
+  ADD COLUMN IF NOT EXISTS product_name TEXT DEFAULT 'REGPACK',
+  ADD COLUMN IF NOT EXISTS start_weight NUMERIC DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS end_weight NUMERIC DEFAULT 1000,
+  ADD COLUMN IF NOT EXISTS rate_type TEXT DEFAULT 'per_kg',
+  ADD COLUMN IF NOT EXISTS range_type TEXT DEFAULT 'CHARGEABLE_weight',
+  ADD COLUMN IF NOT EXISTS publish_rate NUMERIC,
+  ADD COLUMN IF NOT EXISTS markup_percentage NUMERIC DEFAULT 40,
+  ADD COLUMN IF NOT EXISTS selling_rate NUMERIC,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;

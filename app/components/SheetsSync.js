@@ -263,32 +263,7 @@ export default function SheetsSync({
   return (
     <section className="card card-delay-3 sheets-sync-card">
       <div className="card-header-flex">
-        <h2 className="card-title">
-          <span className="sheets-icon" aria-hidden="true">
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M19 3H5C3.89 3 3 3.89 3 5V19C3 20.1 3.89 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.89 20.1 3 19 3Z"
-                fill="#0F9D58"
-                opacity="0.2"
-              />
-              <path
-                d="M19 3H5C3.89 3 3 3.89 3 5V19C3 20.1 3.89 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.89 20.1 3 19 3ZM19 19H5V5H19V19Z"
-                fill="#0F9D58"
-              />
-              <path
-                d="M7 7H17V9H7V7ZM7 11H17V13H7V11ZM7 15H13V17H7V15Z"
-                fill="#0F9D58"
-              />
-            </svg>
-          </span>
-          Google Sheets Sync
-        </h2>
+        <h2 className="card-title">Google Sheets Sync</h2>
         <div className={`sheets-status-badge ${statusDisplay.cls}`}>
           <span className="sheets-status-dot">{statusDisplay.icon}</span>
           <span>{statusDisplay.label}</span>
@@ -305,7 +280,7 @@ export default function SheetsSync({
             className="btn btn-sheets-setup"
             onClick={() => setShowSetup(true)}
           >
-            ⚙ Konfigurasi Google Sheets
+            Konfigurasi Google Sheets
           </button>
         </div>
       )}
@@ -497,7 +472,7 @@ export default function SheetsSync({
       {/* ─── Error state ─── */}
       {status === "error" && !showSetup && (
         <div className="sheets-error-box">
-          <p>⚠️ {message}</p>
+          <p>{message}</p>
           <div className="sheets-error-actions">
             <button className="btn btn-sm" onClick={() => setShowSetup(true)}>
               Ubah Konfigurasi
@@ -515,7 +490,7 @@ export default function SheetsSync({
           <div className="sheets-info-row">
             {sheetsInfo?.spreadsheetTitle && (
               <span className="sheets-title-tag">
-                📊 {sheetsInfo.spreadsheetTitle}
+                {sheetsInfo.spreadsheetTitle}
               </span>
             )}
             {sheetsInfo?.source && (
@@ -530,7 +505,7 @@ export default function SheetsSync({
                 rel="noopener noreferrer"
                 className="sheets-link"
               >
-                Buka Spreadsheet ↗
+                Buka Spreadsheet
               </a>
             )}
           </div>
@@ -547,7 +522,7 @@ export default function SheetsSync({
                   <span className="btn-spinner" /> Mengirim...
                 </>
               ) : (
-                <>↑ Push ke Sheets</>
+                <>Push ke Sheets</>
               )}
             </button>
 
@@ -562,7 +537,7 @@ export default function SheetsSync({
                   <span className="btn-spinner" /> Mengambil...
                 </>
               ) : (
-                <>↓ Pull dari Sheets</>
+                <>Pull dari Sheets</>
               )}
             </button>
 
@@ -572,7 +547,7 @@ export default function SheetsSync({
               disabled={syncing || pulling}
               title="Refresh koneksi"
             >
-              ⟳
+              Refresh
             </button>
 
             <button
@@ -580,7 +555,7 @@ export default function SheetsSync({
               onClick={() => setShowSetup(true)}
               title="Ubah konfigurasi"
             >
-              ⚙
+              Ubah
             </button>
 
             <button
@@ -588,7 +563,7 @@ export default function SheetsSync({
               onClick={handleDeleteConfig}
               title="Hapus konfigurasi"
             >
-              ✕
+              Hapus
             </button>
           </div>
 

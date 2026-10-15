@@ -1,12 +1,14 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import {
   calculatePrice,
   getProductTaxInfo,
   fmtNumber,
   fmtPercent,
+  getCategoryMeta,
 } from "../lib/calculator";
+import { PRODUCT_TYPES, getProductTypeConfig } from "../lib/productTypes";
 
 const NUM_SCENARIOS = 5;
 
@@ -21,7 +23,6 @@ const SCENARIO_COLORS = [
 
 function MarginBadge({ actual, target }) {
   if (isNaN(actual)) return <span>-</span>;
-  // Toleransi pembulatan rupiah agar tidak memicu status peringatan semu
   const isLow = Math.round(actual * 1000) < Math.round(target * 1000);
   return (
     <span className={`badge ${isLow ? "badge-warning" : "badge-success"}`}>
@@ -30,13 +31,91 @@ function MarginBadge({ actual, target }) {
   );
 }
 
-function ProductRow({ row, index, onUpdate, onDelete, taxEnabled }) {
+function ProductRow({
+  row,
+  index,
+  onUpdate,
+  onDelete,
+  taxEnabled,
+  availableCategories = [],
+  onAddCustomCategory,
+}) {
+  const [isCustomMode, setIsCustomMode] = useState(false);
+  const [customVal, setCustomVal] = useState(row[6] || "");
+
   const handleChange = (field, value) => {
     onUpdate(index, field, value);
   };
 
+  const handleCategorySelectChange = (e) => {
+    const val = e.target.value;
+    if (val === "__NEW__") {
+      setIsCustomMode(true);
+      setCustomVal("");
+    } else {
+      handleChange(6, val);
+    }
+  };
+
+  const handleCustomCategoryCommit = () => {
+    const trimmed = customVal.trim();
+    if (trimmed) {
+      if (onAddCustomCategory) onAddCustomCategory(trimmed);
+      handleChange(6, trimmed);
+    } else {
+      handleChange(6, "");
+    }
+    setIsCustomMode(false);
+  };
+
+  const catMeta = getCategoryMeta(row[6]);
+  const currentCategory = row[6] || "";
+
   return (
     <tr className="tbl-row">
+      {/* Category selector column */}
+      <td className="col-kategori">
+        {isCustomMode ? (
+          <div className="cat-inline-edit">
+            <input
+              type="text"
+              className="tbl-input font-semibold"
+              placeholder="Ketik kategori..."
+              value={customVal}
+              onChange={(e) => setCustomVal(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCustomCategoryCommit();
+                if (e.key === "Escape") setIsCustomMode(false);
+              }}
+              onBlur={handleCustomCategoryCommit}
+              autoFocus
+            />
+          </div>
+        ) : (
+          <select
+            value={currentCategory}
+            onChange={handleCategorySelectChange}
+            className="tbl-select-cat font-semibold"
+            aria-label="Kategori"
+            title={`Kategori: ${catMeta?.label || currentCategory || "(Opsional / Kosong)"}`}
+          >
+            <option value="">(Opsional / Kosong)</option>
+            {availableCategories.map((cat) => (
+              <option key={cat.key} value={cat.key}>
+                {cat.shortLabel || cat.label}
+              </option>
+            ))}
+            {currentCategory &&
+              !availableCategories.some(
+                (c) => c.key.toLowerCase() === currentCategory.toLowerCase()
+              ) && (
+                <option value={currentCategory}>{currentCategory}</option>
+              )}
+            <option value="__NEW__">+ Ketik Kategori Baru...</option>
+          </select>
+        )}
+      </td>
+
       <td className="col-penyedia">
         <input
           className="tbl-input text-center font-semibold"
@@ -46,6 +125,7 @@ function ProductRow({ row, index, onUpdate, onDelete, taxEnabled }) {
           aria-label="Penyedia"
         />
       </td>
+
       <td className="col-stok">
         <select
           value={row[1] ?? "OPEN"}
@@ -59,6 +139,7 @@ function ProductRow({ row, index, onUpdate, onDelete, taxEnabled }) {
           <option value="CLOSED">CLOSED</option>
         </select>
       </td>
+
       <td className="col-provider">
         <input
           className="tbl-input"
@@ -68,6 +149,7 @@ function ProductRow({ row, index, onUpdate, onDelete, taxEnabled }) {
           aria-label="Provider"
         />
       </td>
+
       <td className="col-kuota">
         <input
           type="number"
@@ -82,6 +164,7 @@ function ProductRow({ row, index, onUpdate, onDelete, taxEnabled }) {
           aria-label="Kuota GB"
         />
       </td>
+
       <td className="col-cogs">
         <input
           type="number"
@@ -165,19 +248,103 @@ export default function ProductTable({
   quantities,
   error,
   taxEnabled = true,
+  productType = "simcard",
+  onChangeProductType,
+  typeCounts = {},
   children,
 }) {
+  const [selectedCategory, setSelectedCategory] = useState("ALL");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [customCategories, setCustomCategories] = useState([]);
+  const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+
+  const typeConfig = useMemo(() => getProductTypeConfig(productType), [productType]);
+
+  // Available categories for this product type, plus any extra found in data or added by user
+  const availableCategories = useMemo(() => {
+    const list = [...(typeConfig.categories || [])];
+    const existingKeys = new Set(list.map((c) => c.key.toLowerCase()));
+
+    // From data rows
+    data.forEach((r) => {
+      const k = (r[6] || "").trim();
+      if (k && !existingKeys.has(k.toLowerCase())) {
+        list.push({
+          key: k,
+          label: k,
+          shortLabel: k,
+          badgeClass: "badge-cat-default",
+          color: "#64748b",
+        });
+        existingKeys.add(k.toLowerCase());
+      }
+    });
+
+    // Custom categories added in current session
+    customCategories.forEach((k) => {
+      const trimmed = (k || "").trim();
+      if (trimmed && !existingKeys.has(trimmed.toLowerCase())) {
+        list.push({
+          key: trimmed,
+          label: trimmed,
+          shortLabel: trimmed,
+          badgeClass: "badge-cat-default",
+          color: "#0284c7",
+        });
+        existingKeys.add(trimmed.toLowerCase());
+      }
+    });
+
+    return list;
+  }, [typeConfig, data, customCategories]);
+
+  // Handler to register a custom category
+  const handleAddCustomCategory = useCallback((name) => {
+    const trimmed = (name || "").trim();
+    if (!trimmed) return;
+    setCustomCategories((prev) => {
+      if (prev.some((c) => c.toLowerCase() === trimmed.toLowerCase())) return prev;
+      return [...prev, trimmed];
+    });
+  }, []);
+
+  const handleSaveNewCategory = () => {
+    const trimmed = newCategoryName.trim();
+    if (trimmed) {
+      handleAddCustomCategory(trimmed);
+      setSelectedCategory(trimmed);
+      setCurrentPage(1);
+    }
+    setNewCategoryName("");
+    setShowNewCategoryInput(false);
+  };
+
+  // Reset category filter when switching product type
+  useEffect(() => {
+    setSelectedCategory("ALL");
+    setSearchTerm("");
+    setShowNewCategoryInput(false);
+    setNewCategoryName("");
+    setCurrentPage(1);
+  }, [productType]);
+
   const parsedMargins = useMemo(
     () => margins.map((m) => parseFloat(m) / 100),
     [margins]
   );
 
+  // Enriched full dataset
   const enrichedData = useMemo(() => {
     return data.map((row, originalIndex) => {
       const rawCogs = row[4];
       const cogs = typeof rawCogs === "number" ? rawCogs : parseFloat(rawCogs);
       const enriched = [...row];
       enriched._originalIndex = originalIndex;
+
+      const categoryKey = row[6] || "";
+      enriched._categoryKey = categoryKey;
+      enriched._categoryMeta = getCategoryMeta(categoryKey);
 
       const taxInfo = getProductTaxInfo(row[0], taxEnabled);
       enriched._taxInfo = taxInfo;
@@ -190,7 +357,6 @@ export default function ProductTable({
           enriched[`_p${i}`] = `Rp ${fmtNumber.format(result.price)}`;
           enriched[`_rawPrice${i}`] = result.price;
           enriched[`_m${i}`] = result.margin;
-          // Share effective COGS from first calc (same for all scenarios)
           if (i === 0) {
             enriched._effectiveCogs = result.effectiveCogs;
             enriched._taxAmount = result.taxAmount;
@@ -208,7 +374,60 @@ export default function ProductTable({
 
       return enriched;
     });
-  }, [data, parsedMargins, error, taxEnabled]);
+  }, [data, parsedMargins, error, taxEnabled, typeConfig]);
+
+  // Dynamic category counts from data
+  const categoryCounts = useMemo(() => {
+    const counts = { ALL: data.length, NONE: 0 };
+    availableCategories.forEach((cat) => {
+      counts[cat.key] = 0;
+    });
+    data.forEach((row) => {
+      const cat = (row[6] || "").trim();
+      if (!cat) {
+        counts.NONE = (counts.NONE || 0) + 1;
+      } else {
+        const matched = availableCategories.find(
+          (c) => c.key.toLowerCase() === cat.toLowerCase()
+        );
+        const key = matched ? matched.key : cat;
+        counts[key] = (counts[key] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [data, availableCategories]);
+
+  // Filtered dataset based on active category & search
+  const filteredData = useMemo(() => {
+    return enrichedData.filter((row) => {
+      // Category filter
+      if (selectedCategory !== "ALL") {
+        const rowCat = (row[6] || "").trim();
+        if (selectedCategory === "NONE") {
+          if (rowCat !== "") return false;
+        } else {
+          if (rowCat.toLowerCase() !== selectedCategory.toLowerCase()) return false;
+        }
+      }
+
+      // Search filter
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase().trim();
+        const penyedia = String(row[0] || "").toLowerCase();
+        const provider = String(row[2] || "").toLowerCase();
+        const catLabel = (row._categoryMeta?.label || row[6] || "").toLowerCase();
+        if (
+          !penyedia.includes(term) &&
+          !provider.includes(term) &&
+          !catLabel.includes(term)
+        ) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [enrichedData, selectedCategory, searchTerm]);
 
   const qtyLabels = useMemo(
     () =>
@@ -222,10 +441,10 @@ export default function ProductTable({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  const totalRows = enrichedData.length;
+  const totalFilteredRows = filteredData.length;
   const isAll = pageSize === "all";
-  const effectivePageSize = isAll ? totalRows : Number(pageSize);
-  const totalPages = isAll ? 1 : Math.max(1, Math.ceil(totalRows / effectivePageSize));
+  const effectivePageSize = isAll ? totalFilteredRows : Number(pageSize);
+  const totalPages = isAll ? 1 : Math.max(1, Math.ceil(totalFilteredRows / effectivePageSize));
 
   // Reset page when out of bounds
   useEffect(() => {
@@ -235,14 +454,15 @@ export default function ProductTable({
   }, [currentPage, totalPages]);
 
   const startIndex = isAll ? 0 : (currentPage - 1) * effectivePageSize;
-  const endIndex = isAll ? totalRows : Math.min(startIndex + effectivePageSize, totalRows);
-  const displayedRows = enrichedData.slice(startIndex, endIndex);
+  const endIndex = isAll ? totalFilteredRows : Math.min(startIndex + effectivePageSize, totalFilteredRows);
+  const displayedRows = filteredData.slice(startIndex, endIndex);
 
   // Helper when adding product so user lands on the new row's page
   const handleAddProduct = () => {
-    onAdd();
+    const targetCat = selectedCategory === "ALL" || selectedCategory === "NONE" ? "" : selectedCategory;
+    onAdd(targetCat);
     if (!isAll) {
-      const newTotal = totalRows + 1;
+      const newTotal = totalFilteredRows + 1;
       const targetPage = Math.ceil(newTotal / effectivePageSize);
       setCurrentPage(targetPage);
     }
@@ -271,6 +491,7 @@ export default function ProductTable({
 
       const headerRow = [
         "No",
+        "Kategori",
         "Penyedia",
         "Status Stok",
         "Provider / Nama Paket",
@@ -289,9 +510,12 @@ export default function ProductTable({
         );
       }
 
-      const dataRows = enrichedData.map((row, idx) => {
+      const rowsToExport = filteredData.length > 0 ? filteredData : enrichedData;
+
+      const dataRows = rowsToExport.map((row, idx) => {
         const item = [
           idx + 1,
+          row._categoryMeta?.label || row[6] || typeConfig.defaultKategori,
           row[0] || "-",
           row[1] || "-",
           row[2] || "-",
@@ -321,7 +545,7 @@ export default function ProductTable({
       ).join("  |  ");
 
       const ws = XLSX.utils.aoa_to_sheet([
-        ["Kalkulator Harga Jual Paket Data"],
+        [`Kalkulator Harga Jual — ${typeConfig.label}`],
         [
           scenarioSummary,
           `Pajak: ${taxEnabled ? "Aktif" : "Nonaktif"}`,
@@ -334,6 +558,7 @@ export default function ProductTable({
 
       ws["!cols"] = [
         { wch: 6 },
+        { wch: 28 },
         { wch: 14 },
         { wch: 14 },
         { wch: 34 },
@@ -344,10 +569,10 @@ export default function ProductTable({
       ];
 
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Harga Jual Paket Data");
+      XLSX.utils.book_append_sheet(wb, ws, typeConfig.label);
 
       const today = new Date().toISOString().slice(0, 10);
-      XLSX.writeFile(wb, `Harga_Jual_Paket_Data_${today}.xlsx`);
+      XLSX.writeFile(wb, `Harga_Jual_${typeConfig.label.replace(/\s+/g, "_")}_${today}.xlsx`);
     } catch (err) {
       console.error("Gagal export Excel:", err);
     } finally {
@@ -362,6 +587,7 @@ export default function ProductTable({
 
       const headerRow = [
         "No",
+        "Kategori",
         "Penyedia",
         "Status Stok",
         "Provider / Nama Paket",
@@ -380,9 +606,12 @@ export default function ProductTable({
         );
       }
 
-      const dataRows = enrichedData.map((row, idx) => {
+      const rowsToExport = filteredData.length > 0 ? filteredData : enrichedData;
+
+      const dataRows = rowsToExport.map((row, idx) => {
         const item = [
           idx + 1,
+          row._categoryMeta?.label || row[6] || typeConfig.defaultKategori,
           row[0] || "-",
           row[1] || "-",
           row[2] || "-",
@@ -412,7 +641,7 @@ export default function ProductTable({
       XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
 
       const today = new Date().toISOString().slice(0, 10);
-      XLSX.writeFile(wb, `Harga_Jual_Paket_Data_${today}.csv`, { bookType: "csv" });
+      XLSX.writeFile(wb, `Harga_Jual_${typeConfig.label.replace(/\s+/g, "_")}_${today}.csv`, { bookType: "csv" });
     } catch (err) {
       console.error("Gagal export CSV:", err);
     } finally {
@@ -420,15 +649,153 @@ export default function ProductTable({
     }
   };
 
-  const baseColCount = taxEnabled ? 7 : 5;
+  // Base columns count: Kategori(1) + Penyedia(1) + Stok(1) + Provider(1) + Kuota(1) + COGS(1) + [Tax(2)]
+  const baseColCount = taxEnabled ? 8 : 6;
 
   return (
     <section className="card card-delay-2">
       <div className="table-header-flex">
-        <h2 className="card-title">
-          Produk dan hasil
-          <span className="counter-badge">{totalRows} produk</span>
-        </h2>
+        <div className="product-title-group">
+          <h2 className="card-title product-title-main">
+            <span className="product-title-text">Produk</span>
+            <div className="product-title-select-wrap">
+              <select
+                id="productTypeHeaderSelect"
+                className="product-title-select"
+                value={productType}
+                onChange={(e) => onChangeProductType && onChangeProductType(e.target.value)}
+                aria-label="Pilih Jenis Produk"
+              >
+                {PRODUCT_TYPES.map((type) => {
+                  const count = typeCounts[type.id] ?? 0;
+                  return (
+                    <option key={type.id} value={type.id}>
+                      {type.label} ({count} produk)
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+            <span className="counter-badge">
+              {filteredData.length !== data.length
+                ? `${filteredData.length} dari ${data.length} produk`
+                : `${data.length} produk`}
+            </span>
+          </h2>
+        </div>
+
+        {typeConfig?.description && (
+          <span className="product-header-hint">
+            {typeConfig.description}
+          </span>
+        )}
+      </div>
+
+      {/* Dynamic Category Filter Bar (Dropdown & Optional Add Category) */}
+      <div className="category-filter-wrapper">
+        <div className="category-filter-top">
+          <div className="category-filter-left">
+            <label htmlFor="categoryFilterSelect" className="category-filter-label">
+              Kategori:
+            </label>
+            <div className="category-select-wrapper">
+              <select
+                id="categoryFilterSelect"
+                className="category-filter-select"
+                value={selectedCategory}
+                onChange={(e) => {
+                  setSelectedCategory(e.target.value);
+                  setCurrentPage(1);
+                }}
+                aria-label="Filter berdasarkan kategori"
+              >
+                <option value="ALL">Semua Kategori ({categoryCounts.ALL || 0})</option>
+                {categoryCounts.NONE > 0 && (
+                  <option value="NONE">Tanpa Kategori ({categoryCounts.NONE || 0})</option>
+                )}
+                {availableCategories.map((cat) => (
+                  <option key={cat.key} value={cat.key}>
+                    {cat.label || cat.shortLabel} ({categoryCounts[cat.key] || 0})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {showNewCategoryInput ? (
+              <div className="category-inline-add-box">
+                <input
+                  type="text"
+                  className="category-inline-add-input"
+                  placeholder="Kategori baru (opsional)..."
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSaveNewCategory();
+                    if (e.key === "Escape") setShowNewCategoryInput(false);
+                  }}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  onClick={handleSaveNewCategory}
+                >
+                  Simpan
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setShowNewCategoryInput(false)}
+                >
+                  Batal
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="btn-add-category-link"
+                onClick={() => setShowNewCategoryInput(true)}
+                title="Tambah kategori baru (opsional)"
+              >
+                + Tambah Kategori
+              </button>
+            )}
+          </div>
+
+          <div className="table-search-box">
+            <svg
+              className="search-icon"
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Cari provider, nama paket, penyedia..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="table-search-input"
+            />
+            {searchTerm && (
+              <button
+                className="search-clear-btn"
+                onClick={() => setSearchTerm("")}
+                title="Hapus pencarian"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {error && (
@@ -438,7 +805,7 @@ export default function ProductTable({
       )}
 
       <div className="table-scroll">
-        <table className={taxEnabled ? "is-tax-active" : ""}>
+        <table className={`simcard-calc-table ${taxEnabled ? "is-tax-active" : ""}`}>
           <thead>
             <tr className="header-group-row">
               <th colSpan={baseColCount} className="group-header group-header-base">
@@ -456,9 +823,10 @@ export default function ProductTable({
               <th className="group-header group-header-action"></th>
             </tr>
             <tr className="header-columns-row">
+              <th className="col-kategori">Kategori</th>
               <th className="col-penyedia text-center">Penyedia</th>
               <th className="col-stok">Stok</th>
-              <th className="col-provider">Provider</th>
+              <th className="col-provider">Provider / Nama Paket</th>
               <th className="col-kuota text-right">Kuota (GB)</th>
               <th className="col-cogs text-right">COGS (Rp)</th>
               {taxEnabled && (
@@ -488,7 +856,9 @@ export default function ProductTable({
                     fontSize: "14px",
                   }}
                 >
-                  Belum ada data produk. Klik &quot;Tambah produk&quot; untuk menambahkan data.
+                  {data.length === 0
+                    ? `Belum ada data ${typeConfig.label}. Klik "+ Tambah produk" atau import dari file Excel/CSV.`
+                    : "Tidak ada produk yang cocok dengan filter atau kata kunci pencarian."}
                 </td>
               </tr>
             ) : (
@@ -500,6 +870,8 @@ export default function ProductTable({
                   onUpdate={onUpdate}
                   onDelete={onDelete}
                   taxEnabled={taxEnabled}
+                  availableCategories={availableCategories}
+                  onAddCustomCategory={handleAddCustomCategory}
                 />
               ))
             )}
@@ -510,8 +882,9 @@ export default function ProductTable({
       {/* Table Pagination Bar */}
       <div className="table-pagination-bar">
         <div className="pagination-info">
-          Menampilkan <strong>{totalRows > 0 ? startIndex + 1 : 0} - {endIndex}</strong> dari{" "}
-          <strong>{totalRows}</strong> produk
+          Menampilkan <strong>{totalFilteredRows > 0 ? startIndex + 1 : 0} - {endIndex}</strong> dari{" "}
+          <strong>{totalFilteredRows}</strong> produk
+          {filteredData.length !== data.length && ` (total ${data.length})`}
         </div>
 
         <div className="pagination-controls-wrapper">
@@ -578,7 +951,7 @@ export default function ProductTable({
 
       <div className="button-bar">
         <button className="btn btn-primary" onClick={handleAddProduct}>
-          Tambah produk
+          + Tambah produk
         </button>
         <button
           className="btn btn-success"

@@ -1,11 +1,5 @@
-// Default product data
-export const DEFAULT_DATA = [
-  ["DPT", "CLOSED", "Telkomsel", 0.5, 55500],
-  ["DPT", "CLOSED", "Telkomsel", 1, 15000],
-  ["RTS", "OPEN", "Telkomsel Individual Sharing", 2, 36000],
-  ["RTS", "OPEN", "Telkomsel Individual Sharing", 5, 75000],
-  ["DPT", "OPEN", "Telkomsel Individual Package", 3, 32500],
-];
+// Default product data (kosong secara default, siap diisi atau diimpor)
+export const DEFAULT_DATA = [];
 
 // Indonesian number formatter (nominal Rupiah bulat tanpa desimal)
 export const fmtNumber = new Intl.NumberFormat("id-ID", {
@@ -17,6 +11,78 @@ export const fmtPercent = new Intl.NumberFormat("id-ID", {
   minimumFractionDigits: 1,
   maximumFractionDigits: 1,
 });
+
+/**
+ * Category Definitions & Metadata based on PostgreSQL check constraint:
+ * CHECK (kategori IN ('IOT_M2M', 'POSTPAID', 'PREPAID', 'SPI', 'PAYU'))
+ */
+export const CATEGORY_DEFINITIONS = [
+  {
+    key: "IOT_M2M",
+    label: "Monthly Charge - IoT/M2M",
+    shortLabel: "IoT / M2M",
+    badgeClass: "badge-cat-iot",
+    color: "#0284c7",
+    keywords: ["monthly charge - iot/m2m", "iot/m2m", "iot", "m2m"],
+  },
+  {
+    key: "POSTPAID",
+    label: "Monthly Charge - Postpaid",
+    shortLabel: "Postpaid",
+    badgeClass: "badge-cat-postpaid",
+    color: "#8b5cf6",
+    keywords: ["monthly charge - postpaid", "postpaid", "pascabayar"],
+  },
+  {
+    key: "PREPAID",
+    label: "Monthly Charge - Prepaid",
+    shortLabel: "Prepaid",
+    badgeClass: "badge-cat-prepaid",
+    color: "#10b981",
+    keywords: ["monthly charge - prepaid", "prepaid", "prabayar"],
+  },
+  {
+    key: "SPI",
+    label: "Simcard non Human - SPI",
+    shortLabel: "SPI",
+    badgeClass: "badge-cat-spi",
+    color: "#f59e0b",
+    keywords: ["simcard non human - spi", "non human", "spi"],
+  },
+  {
+    key: "PAYU",
+    label: "PAYU TSEL",
+    shortLabel: "PAYU",
+    badgeClass: "badge-cat-payu",
+    color: "#ec4899",
+    keywords: ["payu tsel", "payu", "tambah stock avail"],
+  },
+];
+
+export function detectCategoryFromText(text) {
+  const clean = String(text ?? "").toLowerCase().trim();
+  if (!clean) return null;
+  for (const cat of CATEGORY_DEFINITIONS) {
+    if (cat.keywords.some((k) => clean.includes(k))) {
+      return cat.key;
+    }
+  }
+  return null;
+}
+
+export function getCategoryMeta(key) {
+  const found = CATEGORY_DEFINITIONS.find(
+    (c) => c.key === String(key ?? "").trim().toUpperCase()
+  );
+  if (found) return found;
+  return {
+    key: key || "IOT_M2M",
+    label: key || "Lainnya",
+    shortLabel: key || "Lainnya",
+    badgeClass: "badge-cat-default",
+    color: "#64748b",
+  };
+}
 
 /**
  * Tax information based on Penyedia:
@@ -99,6 +165,7 @@ export const ALIAS = {
     "vendor",
     "supplier",
     "provider source",
+    "biller",
   ],
   1: [
     "status stok",
@@ -119,11 +186,11 @@ export const ALIAS = {
     "nama provider",
     "nama produk",
     "nama paket data",
+    "package name",
     "provider",
     "paket",
     "produk",
     "package",
-    "package name",
     "product",
   ],
   3: [
@@ -138,6 +205,9 @@ export const ALIAS = {
     "gb",
   ],
   4: [
+    "price (tp)",
+    "price tp",
+    "monthly quota",
     "cogs (rp)",
     "cogs rp",
     "cogs",
@@ -151,6 +221,15 @@ export const ALIAS = {
     "cost",
     "harga modal",
     "cogs_rp",
+  ],
+  5: [
+    "kategori",
+    "category",
+    "tipe",
+    "type",
+    "jenis",
+    "section",
+    "kategori produk",
   ],
 };
 
@@ -171,6 +250,16 @@ export function detectColumnMap(headerRow) {
   headerRow.forEach((cell, i) => {
     const raw = normalizeHeader(cell);
     if (!raw) return;
+
+    // Do NOT match columns that explicitly indicate post-tax or markup/sell prices as base COGS
+    if (
+      raw.includes("after tax") ||
+      raw.includes("mark up") ||
+      raw.includes("sell price") ||
+      raw.includes("harga jual")
+    ) {
+      return;
+    }
 
     for (const field in ALIAS) {
       if (
@@ -265,6 +354,8 @@ export function parseDelimited(rawText) {
 
 /**
  * Process imported rows into product data.
+ * Supports both multi-section spreadsheets (like Book1.xlsx with section headers)
+ * and single-table flat files.
  * Returns { added: [...], errors: [...] }
  */
 export function processImportRows(rows) {
@@ -276,74 +367,158 @@ export function processImportRows(rows) {
     return { added: [], errors: ["Tidak ada data yang terbaca."] };
   }
 
-  // Scan the first few rows (up to 10) to find the best matching header row
-  let bestMap = {};
-  let bestHeaderIndex = -1;
-  let maxMatched = 0;
-
-  const maxScan = Math.min(nonEmpty.length, 10);
-  for (let idx = 0; idx < maxScan; idx++) {
-    const candidateMap = detectColumnMap(nonEmpty[idx].row);
-    const countMatched = Object.keys(candidateMap).length;
-    if (countMatched > maxMatched) {
-      maxMatched = countMatched;
-      bestMap = candidateMap;
-      bestHeaderIndex = idx;
-      if (countMatched >= 5) break;
+  // Check if file contains multi-section category titles
+  let hasSectionTitles = false;
+  for (let idx = 0; idx < Math.min(nonEmpty.length, 50); idx++) {
+    const r = nonEmpty[idx].row;
+    const nonEmptyCells = r.filter((c) => String(c ?? "").trim() !== "");
+    const firstCell = String(r[0] ?? "").trim();
+    const joined = nonEmptyCells.join(" ");
+    const cat = detectCategoryFromText(firstCell) || (nonEmptyCells.length <= 2 ? detectCategoryFromText(joined) : null);
+    if (cat && nonEmptyCells.length <= 3) {
+      hasSectionTitles = true;
+      break;
     }
   }
 
-  let colMap = bestMap;
-  let startIndex = 1;
-
-  if (maxMatched >= 3) {
-    startIndex = bestHeaderIndex + 1;
-  } else {
-    // If no header row found, check if first column is row numbering (e.g. 1, 2, 3...)
-    const firstRow = nonEmpty[0].row;
-    const col0IsNum = !isNaN(parseNum(firstRow[0])) && parseNum(firstRow[0]) < 1000;
-    const col1IsStatusOrPenyedia = ["DPT", "RTS", "OPEN", "CLOSED"].includes(
-      String(firstRow[1] || "").trim().toUpperCase()
-    );
-
-    if (col0IsNum && col1IsStatusOrPenyedia) {
-      colMap = { 0: 1, 1: 2, 2: 3, 3: 4, 4: 5 };
-    } else {
-      colMap = { 0: 0, 1: 1, 2: 2, 3: 3, 4: 4 };
-    }
-    startIndex = isNaN(parseNum(firstRow[colMap[4]])) ? 1 : 0;
-  }
-
+  let currentCategory = "IOT_M2M";
+  let currentMap = { 0: 0, 1: 1, 2: 2, 3: 3, 4: 4 };
   const added = [];
   const errors = [];
 
-  nonEmpty.slice(startIndex).forEach((o) => {
-    const r = o.row;
-    const get = (f) => r[colMap[f]] ?? "";
+  if (hasSectionTitles) {
+    // === Multi-Section File Parser (e.g., Book1.xlsx with monthly charge titles) ===
+    for (const o of nonEmpty) {
+      const r = o.row;
+      const nonEmptyCells = r.filter((c) => String(c ?? "").trim() !== "");
+      const firstCell = String(r[0] ?? "").trim();
+      const joinedRow = nonEmptyCells.join(" ");
 
-    const rawStok = String(get(1)).trim().toUpperCase();
-    let stok = "OPEN";
-    if (rawStok === "CLOSED" || rawStok === "HABIS" || rawStok === "KOSONG") {
-      stok = "CLOSED";
+      // Section title check
+      const catDetected =
+        detectCategoryFromText(firstCell) ||
+        (nonEmptyCells.length <= 2 ? detectCategoryFromText(joinedRow) : null);
+      const hasManyColumns = nonEmptyCells.length >= 4;
+
+      if (catDetected && !hasManyColumns) {
+        currentCategory = catDetected;
+        continue;
+      }
+
+      // Column header check
+      const detectedMap = detectColumnMap(r);
+      const matchedCount = Object.keys(detectedMap).length;
+      if (matchedCount >= 3) {
+        currentMap = { ...detectedMap };
+        continue;
+      }
+
+      // Product data row
+      const get = (f) => r[currentMap[f]] ?? "";
+      const rawStok = String(get(1)).trim().toUpperCase();
+      let stok = "OPEN";
+      if (rawStok === "CLOSED" || rawStok === "HABIS" || rawStok === "KOSONG") {
+        stok = "CLOSED";
+      }
+
+      const kuota = parseNum(get(3));
+      const cogs = parseNum(get(4));
+
+      // Skip empty or non-numeric header/description rows
+      if (isNaN(kuota) && isNaN(cogs)) {
+        continue;
+      }
+
+      if (isNaN(kuota)) {
+        errors.push(`Baris ${o.lineNum}: kuota (GB) bukan angka ("${get(3)}")`);
+      } else if (isNaN(cogs)) {
+        errors.push(`Baris ${o.lineNum}: COGS bukan angka ("${get(4)}")`);
+      } else {
+        const penyedia = String(get(0)).trim() || "DPT";
+        const provider = String(get(2)).trim() || "Telkomsel";
+        added.push([
+          penyedia,
+          stok,
+          provider,
+          kuota,
+          cogs,
+          null, // id
+          currentCategory, // kategori
+        ]);
+      }
+    }
+  } else {
+    // === Single Table Flat File Parser ===
+    let bestMap = {};
+    let bestHeaderIndex = -1;
+    let maxMatched = 0;
+
+    const maxScan = Math.min(nonEmpty.length, 10);
+    for (let idx = 0; idx < maxScan; idx++) {
+      const candidateMap = detectColumnMap(nonEmpty[idx].row);
+      const countMatched = Object.keys(candidateMap).length;
+      if (countMatched > maxMatched) {
+        maxMatched = countMatched;
+        bestMap = candidateMap;
+        bestHeaderIndex = idx;
+        if (countMatched >= 5) break;
+      }
     }
 
-    const kuota = parseNum(get(3));
-    const cogs = parseNum(get(4));
+    let colMap = bestMap;
+    let startIndex = 1;
 
-    if (isNaN(kuota)) {
-      errors.push(`Baris ${o.lineNum}: kuota (GB) bukan angka`);
-    } else if (isNaN(cogs)) {
-      errors.push(`Baris ${o.lineNum}: COGS bukan angka`);
+    if (maxMatched >= 3) {
+      startIndex = bestHeaderIndex + 1;
     } else {
-      added.push([
-        String(get(0)).trim() || "DPT",
-        stok,
-        String(get(2)).trim() || "Paket",
-        kuota,
-        cogs,
-      ]);
+      const firstRow = nonEmpty[0].row;
+      const col0IsNum = !isNaN(parseNum(firstRow[0])) && parseNum(firstRow[0]) < 1000;
+      const col1IsStatusOrPenyedia = ["DPT", "RTS", "OPEN", "CLOSED"].includes(
+        String(firstRow[1] || "").trim().toUpperCase()
+      );
+
+      if (col0IsNum && col1IsStatusOrPenyedia) {
+        colMap = { 0: 1, 1: 2, 2: 3, 3: 4, 4: 5 };
+      } else {
+        colMap = { 0: 0, 1: 1, 2: 2, 3: 3, 4: 4 };
+      }
+      startIndex = isNaN(parseNum(firstRow[colMap[4]])) ? 1 : 0;
     }
-  });
+
+    nonEmpty.slice(startIndex).forEach((o) => {
+      const r = o.row;
+      const get = (f) => r[colMap[f]] ?? "";
+
+      const rawStok = String(get(1)).trim().toUpperCase();
+      let stok = "OPEN";
+      if (rawStok === "CLOSED" || rawStok === "HABIS" || rawStok === "KOSONG") {
+        stok = "CLOSED";
+      }
+
+      const kuota = parseNum(get(3));
+      const cogs = parseNum(get(4));
+
+      // Check if explicit category column is present
+      const rawCat = colMap[5] !== undefined ? String(r[colMap[5]] ?? "") : "";
+      const detectedCat = detectCategoryFromText(rawCat) || "IOT_M2M";
+
+      if (isNaN(kuota)) {
+        errors.push(`Baris ${o.lineNum}: kuota (GB) bukan angka`);
+      } else if (isNaN(cogs)) {
+        errors.push(`Baris ${o.lineNum}: COGS bukan angka`);
+      } else {
+        added.push([
+          String(get(0)).trim() || "DPT",
+          stok,
+          String(get(2)).trim() || "Paket",
+          kuota,
+          cogs,
+          null, // id
+          detectedCat,
+        ]);
+      }
+    });
+  }
 
   return { added, errors };
 }

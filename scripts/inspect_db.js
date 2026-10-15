@@ -1,31 +1,38 @@
 const { Pool } = require('pg');
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:kalkulator@localhost:5432/kalkulator_harga_jual'
+  connectionString: process.env.DATABASE_URL || 'postgresql://kalkulator_produk:cku1nternal@38.47.90.252:5432/kalkulator_db'
 });
 
 async function main() {
   try {
-    const checkConstraints = await pool.query(`
-      SELECT conname, pg_get_constraintdef(c.oid) as def
-      FROM pg_constraint c
-      JOIN pg_namespace n ON n.oid = c.connamespace
-      WHERE n.nspname = 'public'
-    `);
-    console.log('All constraints:');
-    checkConstraints.rows.forEach(r => console.log(`${r.conname}: ${r.def}`));
+    const productTables = [
+      'edc_referral_produk',
+      'simcard_produk',
+      'router_produk',
+      'cloudsim_produk',
+      'logistik_produk'
+    ];
 
-    // Check if id has identity
-    const identityCols = await pool.query(`
-      SELECT table_name, column_name, is_identity, identity_generation
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-    `);
-    console.log('\nIdentity columns:', identityCols.rows.filter(r => r.is_identity === 'YES'));
+    for (const tbl of productTables) {
+      const colRes = await pool.query(`
+        SELECT column_name, data_type, is_nullable
+        FROM information_schema.columns 
+        WHERE table_name = $1
+        ORDER BY ordinal_position
+      `, [tbl]);
 
-    await pool.end();
+      const countRes = await pool.query(`SELECT COUNT(*) FROM ${tbl}`);
+      const rowsRes = await pool.query(`SELECT * FROM ${tbl} LIMIT 2`);
+
+      console.log(`\n================== ${tbl.toUpperCase()} (count: ${countRes.rows[0].count}) ==================`);
+      console.log('Columns:', colRes.rows.map(c => `${c.column_name} (${c.data_type})`).join(', '));
+      console.log('Sample rows:', rowsRes.rows);
+    }
   } catch (e) {
     console.error(e);
+  } finally {
+    await pool.end();
   }
 }
 
