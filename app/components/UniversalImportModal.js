@@ -23,6 +23,7 @@ export default function UniversalImportModal({
   const [replaceAll, setReplaceAll] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
 
   // Excel workbook & sheet selection
   const [workbook, setWorkbook] = useState(null);
@@ -96,6 +97,7 @@ export default function UniversalImportModal({
       const isCsvOrText = /\.(csv|txt)$/i.test(filename);
 
       try {
+        setUploadError(null);
         if (isCsvOrText) {
           const reader = new FileReader();
           reader.onload = (e) => {
@@ -103,7 +105,7 @@ export default function UniversalImportModal({
             setIsProcessing(false);
           };
           reader.onerror = () => {
-            alert("Gagal membaca file CSV/TXT.");
+            setUploadError("Gagal membaca file CSV/TXT.");
             setIsProcessing(false);
           };
           reader.readAsText(file);
@@ -129,20 +131,26 @@ export default function UniversalImportModal({
 
               parseRowsWithActiveParser(rows, `${filename} (${firstSheetName})`);
             } catch (err) {
-              console.error("Gagal membaca Excel workbook:", err);
-              alert("Gagal memproses file Excel: " + err.message);
+              const msg = err?.message || "";
+              if (msg.toLowerCase().includes("password")) {
+                setUploadError(
+                  "File Excel ini diproteksi password (terenkripsi). Buka file tersebut di Microsoft Excel, hapus password proteksinya (File > Save As > Tools / General Options > kosongkan password) atau salin tabelnya dan gunakan tab 'Salin-Tempel Teks'."
+                );
+              } else {
+                setUploadError("Gagal memproses file Excel: " + msg);
+              }
             } finally {
               setIsProcessing(false);
             }
           };
           reader.onerror = () => {
-            alert("Gagal membaca file Excel.");
+            setUploadError("Gagal membaca file Excel.");
             setIsProcessing(false);
           };
           reader.readAsArrayBuffer(file);
         }
       } catch (err) {
-        console.error("Error file handling:", err);
+        setUploadError("Gagal memproses file: " + (err?.message || ""));
         setIsProcessing(false);
       }
     },
@@ -188,6 +196,7 @@ export default function UniversalImportModal({
     setSheetNames([]);
     setSelectedSheet("");
     setPasteContent("");
+    setUploadError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -224,6 +233,16 @@ export default function UniversalImportModal({
 
         {/* Modal Body */}
         <div className="universal-modal-body">
+          {/* Upload Error Alert */}
+          {uploadError && (
+            <div className="delete-alert-box" style={{ marginBottom: "16px" }}>
+              <div className="delete-alert-icon">⚠️</div>
+              <div className="delete-alert-text">
+                <strong>Gagal Membaca File:</strong> {uploadError}
+              </div>
+            </div>
+          )}
+
           {/* Action & Template Bar */}
           <div className="import-action-bar">
             <div className="import-tabs">
