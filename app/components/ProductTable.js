@@ -488,10 +488,11 @@ export default function ProductTable({
     try {
       setIsExporting(true);
       const XLSX = await import("xlsx");
+      const rowsToExport = filteredData.length > 0 ? filteredData : enrichedData;
 
       const headerRow = [
         "No",
-        "Kategori",
+        "Unit (Volume)",
         "Penyedia",
         "Status Stok",
         "Provider / Nama Paket",
@@ -503,41 +504,44 @@ export default function ProductTable({
         headerRow.push("Tarif Pajak", "Nominal Pajak (Rp)", "COGS + Pajak (Rp)");
       }
 
-      for (let i = 0; i < NUM_SCENARIOS; i++) {
-        headerRow.push(
-          `Harga Jual (${qtyLabels[i]} unit - Margin ${margins[i]}%)`,
-          `Margin Aktual (${qtyLabels[i]} unit)`
-        );
-      }
+      headerRow.push("Target Margin", "Harga Jual (Rp)", "Margin Aktual");
 
-      const rowsToExport = filteredData.length > 0 ? filteredData : enrichedData;
+      const dataRows = [];
+      rowsToExport.forEach((row, idx) => {
+        const productNo = idx + 1;
+        const penyedia = row[0] || "-";
+        const statusStok = row[1] || "-";
+        const provider = row[2] || "-";
+        const kuota = typeof row[3] === "number" ? row[3] : Number(row[3]) || 0;
+        const cogs = typeof row[4] === "number" ? row[4] : Number(row[4]) || 0;
 
-      const dataRows = rowsToExport.map((row, idx) => {
-        const item = [
-          idx + 1,
-          row._categoryMeta?.label || row[6] || typeConfig.defaultKategori,
-          row[0] || "-",
-          row[1] || "-",
-          row[2] || "-",
-          typeof row[3] === "number" ? row[3] : Number(row[3]) || 0,
-          typeof row[4] === "number" ? row[4] : Number(row[4]) || 0,
-        ];
-
-        if (taxEnabled) {
-          item.push(
-            row._taxInfo?.label || "0%",
-            row._taxAmount ? Math.round(row._taxAmount) : 0,
-            row._effectiveCogs ? Math.round(row._effectiveCogs) : (Number(row[4]) || 0)
-          );
-        }
+        const tarifPajak = row._taxInfo?.label || "0%";
+        const nominalPajak = row._taxAmount ? Math.round(row._taxAmount) : 0;
+        const cogsPlusPajak = row._effectiveCogs ? Math.round(row._effectiveCogs) : (Number(row[4]) || 0);
 
         for (let i = 0; i < NUM_SCENARIOS; i++) {
+          const unitLabel = `${qtyLabels[i]} unit`;
+          const targetMargin = `${margins[i]}%`;
           const pVal = typeof row[`_rawPrice${i}`] === "number" ? Math.round(row[`_rawPrice${i}`]) : 0;
           const mPct = row[`_m${i}`] !== undefined && !isNaN(row[`_m${i}`]) ? `${(row[`_m${i}`] * 100).toFixed(1)}%` : "-";
-          item.push(pVal, mPct);
-        }
 
-        return item;
+          const item = [
+            productNo,
+            unitLabel,
+            penyedia,
+            statusStok,
+            provider,
+            kuota,
+            cogs,
+          ];
+
+          if (taxEnabled) {
+            item.push(tarifPajak, nominalPajak, cogsPlusPajak);
+          }
+
+          item.push(targetMargin, pVal, mPct);
+          dataRows.push(item);
+        }
       });
 
       const scenarioSummary = margins.map(
@@ -558,14 +562,16 @@ export default function ProductTable({
 
       ws["!cols"] = [
         { wch: 6 },
-        { wch: 28 },
+        { wch: 16 },
         { wch: 14 },
         { wch: 14 },
         { wch: 34 },
         { wch: 14 },
         { wch: 16 },
-        ...(taxEnabled ? [{ wch: 18 }, { wch: 18 }, { wch: 18 }] : []),
-        ...Array.from({ length: NUM_SCENARIOS }, () => [{ wch: 24 }, { wch: 16 }]).flat(),
+        ...(taxEnabled ? [{ wch: 16 }, { wch: 20 }, { wch: 20 }] : []),
+        { wch: 16 },
+        { wch: 18 },
+        { wch: 16 },
       ];
 
       const wb = XLSX.utils.book_new();
@@ -584,10 +590,11 @@ export default function ProductTable({
     try {
       setIsExporting(true);
       const XLSX = await import("xlsx");
+      const rowsToExport = filteredData.length > 0 ? filteredData : enrichedData;
 
       const headerRow = [
         "No",
-        "Kategori",
+        "Unit (Volume)",
         "Penyedia",
         "Status Stok",
         "Provider / Nama Paket",
@@ -599,41 +606,44 @@ export default function ProductTable({
         headerRow.push("Tarif Pajak", "Nominal Pajak (Rp)", "COGS + Pajak (Rp)");
       }
 
-      for (let i = 0; i < NUM_SCENARIOS; i++) {
-        headerRow.push(
-          `Harga Jual (${qtyLabels[i]} unit - Margin ${margins[i]}%)`,
-          `Margin Aktual (${qtyLabels[i]} unit)`
-        );
-      }
+      headerRow.push("Target Margin", "Harga Jual (Rp)", "Margin Aktual");
 
-      const rowsToExport = filteredData.length > 0 ? filteredData : enrichedData;
+      const dataRows = [];
+      rowsToExport.forEach((row, idx) => {
+        const productNo = idx + 1;
+        const penyedia = row[0] || "-";
+        const statusStok = row[1] || "-";
+        const provider = row[2] || "-";
+        const kuota = typeof row[3] === "number" ? row[3] : Number(row[3]) || 0;
+        const cogs = typeof row[4] === "number" ? row[4] : Number(row[4]) || 0;
 
-      const dataRows = rowsToExport.map((row, idx) => {
-        const item = [
-          idx + 1,
-          row._categoryMeta?.label || row[6] || typeConfig.defaultKategori,
-          row[0] || "-",
-          row[1] || "-",
-          row[2] || "-",
-          row[3] || 0,
-          row[4] || 0,
-        ];
-
-        if (taxEnabled) {
-          item.push(
-            row._taxInfo?.label || "0%",
-            row._taxAmount ? Math.round(row._taxAmount) : 0,
-            row._effectiveCogs ? Math.round(row._effectiveCogs) : (Number(row[4]) || 0)
-          );
-        }
+        const tarifPajak = row._taxInfo?.label || "0%";
+        const nominalPajak = row._taxAmount ? Math.round(row._taxAmount) : 0;
+        const cogsPlusPajak = row._effectiveCogs ? Math.round(row._effectiveCogs) : (Number(row[4]) || 0);
 
         for (let i = 0; i < NUM_SCENARIOS; i++) {
+          const unitLabel = `${qtyLabels[i]} unit`;
+          const targetMargin = `${margins[i]}%`;
           const pVal = typeof row[`_rawPrice${i}`] === "number" ? Math.round(row[`_rawPrice${i}`]) : 0;
           const mPct = row[`_m${i}`] !== undefined && !isNaN(row[`_m${i}`]) ? `${(row[`_m${i}`] * 100).toFixed(1)}%` : "-";
-          item.push(pVal, mPct);
-        }
 
-        return item;
+          const item = [
+            productNo,
+            unitLabel,
+            penyedia,
+            statusStok,
+            provider,
+            kuota,
+            cogs,
+          ];
+
+          if (taxEnabled) {
+            item.push(tarifPajak, nominalPajak, cogsPlusPajak);
+          }
+
+          item.push(targetMargin, pVal, mPct);
+          dataRows.push(item);
+        }
       });
 
       const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);

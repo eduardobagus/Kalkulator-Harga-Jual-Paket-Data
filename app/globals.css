@@ -114,6 +114,9 @@
 html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 body {
@@ -125,7 +128,10 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
+  width: 100%;
+  max-width: 100vw;
   overflow-x: hidden;
+  position: relative;
 }
 
 /* Ambient background glow */
@@ -157,9 +163,11 @@ body::after {
 .app-container {
   position: relative;
   z-index: 1;
+  width: 100%;
   max-width: 1380px;
   margin: 0 auto;
   padding: 32px 24px 64px;
+  box-sizing: border-box;
   transition: max-width var(--transition-base);
 }
 
@@ -254,6 +262,10 @@ body::after {
   box-shadow: var(--shadow-sm);
   transition: border-color var(--transition-base), box-shadow var(--transition-base);
   animation: fadeInUp 0.6s ease-out backwards;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .card:hover {
@@ -475,27 +487,7 @@ body::after {
   line-height: 1.4;
 }
 
-/* ═══ Table ═══ */
-.table-scroll {
-  overflow-x: auto;
-  margin: 0 -24px;
-  padding: 0 24px;
-  -webkit-overflow-scrolling: touch;
-}
-
-.table-scroll::-webkit-scrollbar {
-  height: 6px;
-}
-
-.table-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.table-scroll::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
-}
-
+/* ═══ Table Container & Scroll ═══ */
 table {
   border-collapse: separate;
   border-spacing: 0;
@@ -507,27 +499,37 @@ table {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   margin: 12px 0;
+  padding: 0;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--bg-card);
   scrollbar-width: thin;
   scrollbar-color: var(--accent) var(--bg-tertiary);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .table-scroll::-webkit-scrollbar,
 .tbl-container::-webkit-scrollbar {
-  height: 6px;
+  height: 7px;
 }
 
 .table-scroll::-webkit-scrollbar-track,
 .tbl-container::-webkit-scrollbar-track {
   background: var(--bg-tertiary);
+  border-radius: 4px;
 }
 
 .table-scroll::-webkit-scrollbar-thumb,
 .tbl-container::-webkit-scrollbar-thumb {
   background: var(--accent);
-  border-radius: 3px;
+  border-radius: 4px;
+}
+
+.table-scroll::-webkit-scrollbar-thumb:hover,
+.tbl-container::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-light);
 }
 
 .table-scroll > table.simcard-calc-table,
@@ -3551,6 +3553,15 @@ textarea::placeholder {
     min-width: 130px;
     justify-content: center;
     text-align: center;
+  }
+
+  .button-bar .export-control-group {
+    flex: 1 1 100%;
+    display: flex;
+  }
+
+  .export-control-group .btn-success {
+    flex: 1;
   }
 
   /* Table Actions */
