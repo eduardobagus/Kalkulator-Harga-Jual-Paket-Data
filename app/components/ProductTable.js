@@ -9,6 +9,7 @@ import {
   getCategoryMeta,
 } from "../lib/calculator";
 import { PRODUCT_TYPES, getProductTypeConfig } from "../lib/productTypes";
+import ExportPackageModal from "./ExportPackageModal";
 
 const NUM_SCENARIOS = 5;
 
@@ -73,6 +74,17 @@ function ProductRow({
 
   return (
     <tr className="tbl-row">
+      <td className="col-action text-center">
+        <button
+          className="tbl-btn-del"
+          onClick={() => onDelete(index)}
+          title="Hapus baris"
+          aria-label="Hapus baris"
+        >
+          ✕
+        </button>
+      </td>
+
       {/* Category selector column */}
       <td className="col-kategori">
         {isCustomMode ? (
@@ -223,17 +235,6 @@ function ProductRow({
           </td>
         </React.Fragment>
       ))}
-
-      <td className="col-action text-center">
-        <button
-          className="tbl-btn-del"
-          onClick={() => onDelete(index)}
-          title="Hapus baris"
-          aria-label="Hapus baris"
-        >
-          ✕
-        </button>
-      </td>
     </tr>
   );
 }
@@ -483,96 +484,337 @@ export default function ProductTable({
   }, [currentPage, totalPages]);
 
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState("excel");
 
-  const handleDownloadExcel = async () => {
-    try {
-      setIsExporting(true);
-      const XLSX = await import("xlsx");
-      const rowsToExport = filteredData.length > 0 ? filteredData : enrichedData;
+  const buildMatrixAoa = (rowsToExport) => {
+    const aoa = [
+      [`KALKULATOR HARGA JUAL — ${typeConfig.label.toUpperCase()}`],
+      [
+        `Tanggal Export: ${new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}`,
+        `Status Pajak: ${taxEnabled ? "Aktif" : "Nonaktif"}`,
+        `Total: ${rowsToExport.length} Paket Produk`,
+      ],
+      [],
+    ];
 
-      const headerRow = [
-        "No",
-        "Unit (Volume)",
-        "Penyedia",
-        "Status Stok",
-        "Provider / Nama Paket",
-        "Kuota (GB)",
-        "COGS (Rp)",
+    const packageHeaders = rowsToExport.map((row, idx) => {
+      const productNo = idx + 1;
+      const provider = row[2] || `Paket #${productNo}`;
+      return provider.toLowerCase().startsWith("paket")
+        ? provider
+        : `PAKET #${productNo}: ${provider}`;
+    });
+
+    // 1. Matrix Header (Col A: Skenario, Col B: Target Margin, Col C..: Package Names)
+    aoa.push([
+      "Skenario / Volume",
+      "Target Margin",
+      ...packageHeaders,
+    ]);
+
+    // 2. 5 Price rows (S1 to S5)
+    for (let i = 0; i < NUM_SCENARIOS; i++) {
+      const unitLabel = `${qtyLabels[i]} unit`;
+      const targetMargin = `${margins[i]}%`;
+      const scenarioLabel = `S${i + 1} (${unitLabel})`;
+
+      const priceRow = [
+        scenarioLabel,
+        targetMargin,
+      ];
+
+      rowsToExport.forEach((row) => {
+        const pVal = typeof row[`_rawPrice${i}`] === "number" ? Math.round(row[`_rawPrice${i}`]) : 0;
+        priceRow.push(pVal);
+      });
+
+      aoa.push(priceRow);
+    }
+
+    // 3. Quick specs under prices
+    aoa.push([]);
+
+    const kuotaRow = ["Spesifikasi: Kuota", "-"];
+    rowsToExport.forEach((row) => {
+      const kuota = typeof row[3] === "number" ? row[3] : Number(row[3]) || 0;
+      kuotaRow.push(`${kuota} GB`);
+    });
+    aoa.push(kuotaRow);
+
+    const cogsRow = ["Modal COGS (Rp)", "-"];
+    rowsToExport.forEach((row) => {
+      const cogs = typeof row[4] === "number" ? row[4] : Number(row[4]) || 0;
+      cogsRow.push(Math.round(cogs));
+    });
+    aoa.push(cogsRow);
+
+    if (taxEnabled) {
+      const cogsTaxRow = ["COGS + Pajak (Rp)", "-"];
+      rowsToExport.forEach((row) => {
+        const cogs = typeof row[4] === "number" ? row[4] : Number(row[4]) || 0;
+        const cogsPlusPajak = row._effectiveCogs ? Math.round(row._effectiveCogs) : cogs;
+        cogsTaxRow.push(Math.round(cogsPlusPajak));
+      });
+      aoa.push(cogsTaxRow);
+    }
+
+    // 4. Detail Table
+    aoa.push([]);
+    aoa.push(["DETAIL INFORMASI & SPESIFIKASI PAKET PRODUK"]);
+    const detailHeader = [
+      "No",
+      "Nama Paket / Provider",
+      "Kategori",
+      "Penyedia",
+      "Status Stok",
+      "Kuota (GB)",
+      "Modal COGS (Rp)",
+    ];
+    if (taxEnabled) {
+      detailHeader.push("Tarif Pajak", "Nominal Pajak (Rp)", "COGS + Pajak (Rp)");
+    }
+    aoa.push(detailHeader);
+
+    rowsToExport.forEach((row, idx) => {
+      const productNo = idx + 1;
+      const penyedia = row[0] || "-";
+      const statusStok = row[1] || "-";
+      const provider = row[2] || `Paket #${productNo}`;
+      const kuota = typeof row[3] === "number" ? row[3] : Number(row[3]) || 0;
+      const cogs = typeof row[4] === "number" ? row[4] : Number(row[4]) || 0;
+      const kategori = row[6] || row._categoryMeta?.label || "-";
+
+      const item = [
+        productNo,
+        provider,
+        kategori,
+        penyedia,
+        statusStok,
+        kuota,
+        Math.round(cogs),
       ];
 
       if (taxEnabled) {
-        headerRow.push("Tarif Pajak", "Nominal Pajak (Rp)", "COGS + Pajak (Rp)");
-      }
-
-      headerRow.push("Target Margin", "Harga Jual (Rp)", "Margin Aktual");
-
-      const dataRows = [];
-      rowsToExport.forEach((row, idx) => {
-        const productNo = idx + 1;
-        const penyedia = row[0] || "-";
-        const statusStok = row[1] || "-";
-        const provider = row[2] || "-";
-        const kuota = typeof row[3] === "number" ? row[3] : Number(row[3]) || 0;
-        const cogs = typeof row[4] === "number" ? row[4] : Number(row[4]) || 0;
-
         const tarifPajak = row._taxInfo?.label || "0%";
         const nominalPajak = row._taxAmount ? Math.round(row._taxAmount) : 0;
-        const cogsPlusPajak = row._effectiveCogs ? Math.round(row._effectiveCogs) : (Number(row[4]) || 0);
+        const cogsPlusPajak = row._effectiveCogs ? Math.round(row._effectiveCogs) : cogs;
+        item.push(tarifPajak, nominalPajak, Math.round(cogsPlusPajak));
+      }
 
-        for (let i = 0; i < NUM_SCENARIOS; i++) {
-          const unitLabel = `${qtyLabels[i]} unit`;
-          const targetMargin = `${margins[i]}%`;
-          const pVal = typeof row[`_rawPrice${i}`] === "number" ? Math.round(row[`_rawPrice${i}`]) : 0;
-          const mPct = row[`_m${i}`] !== undefined && !isNaN(row[`_m${i}`]) ? `${(row[`_m${i}`] * 100).toFixed(1)}%` : "-";
+      aoa.push(item);
+    });
 
-          const item = [
-            productNo,
-            unitLabel,
-            penyedia,
-            statusStok,
-            provider,
-            kuota,
-            cogs,
-          ];
+    return { aoa, packageHeaders };
+  };
 
+  const handleDownloadExcel = async (customRows = null, layout = "matrix") => {
+    try {
+      setIsExporting(true);
+      const XLSX = await import("xlsx");
+      const rowsToExport = customRows && customRows.length > 0
+        ? customRows
+        : (filteredData.length > 0 ? filteredData : enrichedData);
+
+      let ws;
+
+      if (layout === "matrix") {
+        const { aoa, packageHeaders } = buildMatrixAoa(rowsToExport);
+        ws = XLSX.utils.aoa_to_sheet(aoa);
+
+        ws["!merges"] = [
+          { s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(2, packageHeaders.length + 1) } },
+        ];
+
+        ws["!cols"] = [
+          { wch: 22 },
+          { wch: 15 },
+          ...packageHeaders.map((h) => ({ wch: Math.max(24, h.length + 2) })),
+        ];
+      } else if (layout === "grouped") {
+        const aoa = [
+          [`KALKULATOR HARGA JUAL — ${typeConfig.label.toUpperCase()}`],
+          [
+            `Tanggal Export: ${new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}`,
+            `Status Pajak: ${taxEnabled ? "Aktif" : "Nonaktif"}`,
+            `Total: ${rowsToExport.length} Paket Produk`,
+          ],
+          [],
+        ];
+
+        const merges = [
+          { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
+        ];
+
+        rowsToExport.forEach((row, idx) => {
+          const productNo = idx + 1;
+          const penyedia = row[0] || "-";
+          const statusStok = row[1] || "-";
+          const provider = row[2] || `Paket #${productNo}`;
+          const kuota = typeof row[3] === "number" ? row[3] : Number(row[3]) || 0;
+          const cogs = typeof row[4] === "number" ? row[4] : Number(row[4]) || 0;
+          const kategori = row[6] || row._categoryMeta?.label || "-";
+
+          const tarifPajak = row._taxInfo?.label || "0%";
+          const nominalPajak = row._taxAmount ? Math.round(row._taxAmount) : 0;
+          const cogsPlusPajak = row._effectiveCogs ? Math.round(row._effectiveCogs) : cogs;
+
+          // 1. Nama Paket di baris atas
+          const bannerRowIdx = aoa.length;
+          aoa.push([`PAKET #${productNo}: ${provider}`]);
+          merges.push({ s: { r: bannerRowIdx, c: 0 }, e: { r: bannerRowIdx, c: 5 } });
+
+          // 2. Baris Spesifikasi / Detail Modal
           if (taxEnabled) {
-            item.push(tarifPajak, nominalPajak, cogsPlusPajak);
+            aoa.push([
+              `Kategori: ${kategori}`,
+              `Penyedia: ${penyedia}`,
+              `Status: ${statusStok}`,
+              `Kuota: ${kuota} GB`,
+              `Modal: Rp ${fmtNumber.format(cogs)}`,
+              `Pajak (${tarifPajak}): Rp ${fmtNumber.format(nominalPajak)}`,
+              `COGS + Pajak: Rp ${fmtNumber.format(cogsPlusPajak)}`,
+            ]);
+          } else {
+            aoa.push([
+              `Kategori: ${kategori}`,
+              `Penyedia: ${penyedia}`,
+              `Status: ${statusStok}`,
+              `Kuota: ${kuota} GB`,
+              `Modal (COGS): Rp ${fmtNumber.format(cogs)}`,
+            ]);
           }
 
-          item.push(targetMargin, pVal, mPct);
-          dataRows.push(item);
+          // 3. Header Tabel List Harga
+          aoa.push([
+            "No",
+            "Tier / Volume",
+            "Target Margin",
+            "Harga Jual / Unit (Rp)",
+            "Margin Aktual",
+            "Estimasi Laba / Unit (Rp)",
+          ]);
+
+          // 4. Daftar Harga untuk semua skenario di bawahnya
+          for (let i = 0; i < NUM_SCENARIOS; i++) {
+            const unitLabel = `${qtyLabels[i]} unit`;
+            const targetMargin = `${margins[i]}%`;
+            const pVal = typeof row[`_rawPrice${i}`] === "number" ? Math.round(row[`_rawPrice${i}`]) : 0;
+            const mPct = row[`_m${i}`] !== undefined && !isNaN(row[`_m${i}`])
+              ? `${(row[`_m${i}`] * 100).toFixed(1)}%`
+              : "-";
+            const labaUnit = pVal > 0 ? Math.round(pVal - cogsPlusPajak) : 0;
+
+            aoa.push([
+              i + 1,
+              unitLabel,
+              targetMargin,
+              pVal,
+              mPct,
+              labaUnit,
+            ]);
+          }
+
+          // 5. Spacer antar paket
+          aoa.push([]);
+        });
+
+        ws = XLSX.utils.aoa_to_sheet(aoa);
+        ws["!merges"] = merges;
+        ws["!cols"] = [
+          { wch: 8 },  // No
+          { wch: 20 }, // Tier / Volume
+          { wch: 16 }, // Target Margin
+          { wch: 24 }, // Harga Jual
+          { wch: 16 }, // Margin Aktual
+          { wch: 24 }, // Estimasi Laba
+          { wch: 26 }, // Extra col
+        ];
+      } else {
+        const headerRow = [
+          "No",
+          "Unit (Volume)",
+          "Penyedia",
+          "Status Stok",
+          "Provider / Nama Paket",
+          "Kuota (GB)",
+          "COGS (Rp)",
+        ];
+
+        if (taxEnabled) {
+          headerRow.push("Tarif Pajak", "Nominal Pajak (Rp)", "COGS + Pajak (Rp)");
         }
-      });
 
-      const scenarioSummary = margins.map(
-        (m, i) => `Skenario ${i + 1}: ${qtyLabels[i]} unit (Margin ${m}%)`
-      ).join("  |  ");
+        headerRow.push("Target Margin", "Harga Jual (Rp)", "Margin Aktual");
 
-      const ws = XLSX.utils.aoa_to_sheet([
-        [`Kalkulator Harga Jual — ${typeConfig.label}`],
-        [
-          scenarioSummary,
-          `Pajak: ${taxEnabled ? "Aktif" : "Nonaktif"}`,
-          `Sistem: Nominal Rupiah bulat tanpa desimal`,
-        ],
-        [],
-        headerRow,
-        ...dataRows,
-      ]);
+        const dataRows = [];
+        rowsToExport.forEach((row, idx) => {
+          const productNo = idx + 1;
+          const penyedia = row[0] || "-";
+          const statusStok = row[1] || "-";
+          const provider = row[2] || "-";
+          const kuota = typeof row[3] === "number" ? row[3] : Number(row[3]) || 0;
+          const cogs = typeof row[4] === "number" ? row[4] : Number(row[4]) || 0;
 
-      ws["!cols"] = [
-        { wch: 6 },
-        { wch: 16 },
-        { wch: 14 },
-        { wch: 14 },
-        { wch: 34 },
-        { wch: 14 },
-        { wch: 16 },
-        ...(taxEnabled ? [{ wch: 16 }, { wch: 20 }, { wch: 20 }] : []),
-        { wch: 16 },
-        { wch: 18 },
-        { wch: 16 },
-      ];
+          const tarifPajak = row._taxInfo?.label || "0%";
+          const nominalPajak = row._taxAmount ? Math.round(row._taxAmount) : 0;
+          const cogsPlusPajak = row._effectiveCogs ? Math.round(row._effectiveCogs) : (Number(row[4]) || 0);
+
+          for (let i = 0; i < NUM_SCENARIOS; i++) {
+            const unitLabel = `${qtyLabels[i]} unit`;
+            const targetMargin = `${margins[i]}%`;
+            const pVal = typeof row[`_rawPrice${i}`] === "number" ? Math.round(row[`_rawPrice${i}`]) : 0;
+            const mPct = row[`_m${i}`] !== undefined && !isNaN(row[`_m${i}`]) ? `${(row[`_m${i}`] * 100).toFixed(1)}%` : "-";
+
+            const item = [
+              productNo,
+              unitLabel,
+              penyedia,
+              statusStok,
+              provider,
+              kuota,
+              cogs,
+            ];
+
+            if (taxEnabled) {
+              item.push(tarifPajak, nominalPajak, cogsPlusPajak);
+            }
+
+            item.push(targetMargin, pVal, mPct);
+            dataRows.push(item);
+          }
+        });
+
+        const scenarioSummary = margins.map(
+          (m, i) => `Skenario ${i + 1}: ${qtyLabels[i]} unit (Margin ${m}%)`
+        ).join("  |  ");
+
+        ws = XLSX.utils.aoa_to_sheet([
+          [`Kalkulator Harga Jual — ${typeConfig.label}`],
+          [
+            scenarioSummary,
+            `Pajak: ${taxEnabled ? "Aktif" : "Nonaktif"}`,
+            `Sistem: Nominal Rupiah bulat tanpa desimal`,
+          ],
+          [],
+          headerRow,
+          ...dataRows,
+        ]);
+
+        ws["!cols"] = [
+          { wch: 6 },
+          { wch: 16 },
+          { wch: 14 },
+          { wch: 14 },
+          { wch: 34 },
+          { wch: 14 },
+          { wch: 16 },
+          ...(taxEnabled ? [{ wch: 16 }, { wch: 20 }, { wch: 20 }] : []),
+          { wch: 16 },
+          { wch: 18 },
+          { wch: 16 },
+        ];
+      }
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, typeConfig.label);
@@ -586,67 +828,154 @@ export default function ProductTable({
     }
   };
 
-  const handleDownloadCSV = async () => {
+  const handleDownloadCSV = async (customRows = null, layout = "matrix") => {
     try {
       setIsExporting(true);
       const XLSX = await import("xlsx");
-      const rowsToExport = filteredData.length > 0 ? filteredData : enrichedData;
+      const rowsToExport = customRows && customRows.length > 0
+        ? customRows
+        : (filteredData.length > 0 ? filteredData : enrichedData);
 
-      const headerRow = [
-        "No",
-        "Unit (Volume)",
-        "Penyedia",
-        "Status Stok",
-        "Provider / Nama Paket",
-        "Kuota (GB)",
-        "COGS (Rp)",
-      ];
+      let ws;
 
-      if (taxEnabled) {
-        headerRow.push("Tarif Pajak", "Nominal Pajak (Rp)", "COGS + Pajak (Rp)");
-      }
+      if (layout === "matrix") {
+        const { aoa } = buildMatrixAoa(rowsToExport);
+        ws = XLSX.utils.aoa_to_sheet(aoa);
+      } else if (layout === "grouped") {
+        const aoa = [
+          [`KALKULATOR HARGA JUAL — ${typeConfig.label.toUpperCase()}`],
+          [
+            `Tanggal Export: ${new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}`,
+            `Status Pajak: ${taxEnabled ? "Aktif" : "Nonaktif"}`,
+            `Total: ${rowsToExport.length} Paket Produk`,
+          ],
+          [],
+        ];
 
-      headerRow.push("Target Margin", "Harga Jual (Rp)", "Margin Aktual");
+        rowsToExport.forEach((row, idx) => {
+          const productNo = idx + 1;
+          const penyedia = row[0] || "-";
+          const statusStok = row[1] || "-";
+          const provider = row[2] || `Paket #${productNo}`;
+          const kuota = typeof row[3] === "number" ? row[3] : Number(row[3]) || 0;
+          const cogs = typeof row[4] === "number" ? row[4] : Number(row[4]) || 0;
+          const kategori = row[6] || row._categoryMeta?.label || "-";
 
-      const dataRows = [];
-      rowsToExport.forEach((row, idx) => {
-        const productNo = idx + 1;
-        const penyedia = row[0] || "-";
-        const statusStok = row[1] || "-";
-        const provider = row[2] || "-";
-        const kuota = typeof row[3] === "number" ? row[3] : Number(row[3]) || 0;
-        const cogs = typeof row[4] === "number" ? row[4] : Number(row[4]) || 0;
+          const tarifPajak = row._taxInfo?.label || "0%";
+          const nominalPajak = row._taxAmount ? Math.round(row._taxAmount) : 0;
+          const cogsPlusPajak = row._effectiveCogs ? Math.round(row._effectiveCogs) : cogs;
 
-        const tarifPajak = row._taxInfo?.label || "0%";
-        const nominalPajak = row._taxAmount ? Math.round(row._taxAmount) : 0;
-        const cogsPlusPajak = row._effectiveCogs ? Math.round(row._effectiveCogs) : (Number(row[4]) || 0);
-
-        for (let i = 0; i < NUM_SCENARIOS; i++) {
-          const unitLabel = `${qtyLabels[i]} unit`;
-          const targetMargin = `${margins[i]}%`;
-          const pVal = typeof row[`_rawPrice${i}`] === "number" ? Math.round(row[`_rawPrice${i}`]) : 0;
-          const mPct = row[`_m${i}`] !== undefined && !isNaN(row[`_m${i}`]) ? `${(row[`_m${i}`] * 100).toFixed(1)}%` : "-";
-
-          const item = [
-            productNo,
-            unitLabel,
-            penyedia,
-            statusStok,
-            provider,
-            kuota,
-            cogs,
-          ];
-
+          aoa.push([`PAKET #${productNo}: ${provider}`]);
           if (taxEnabled) {
-            item.push(tarifPajak, nominalPajak, cogsPlusPajak);
+            aoa.push([
+              `Kategori: ${kategori}`,
+              `Penyedia: ${penyedia}`,
+              `Status: ${statusStok}`,
+              `Kuota: ${kuota} GB`,
+              `Modal: Rp ${fmtNumber.format(cogs)}`,
+              `Pajak (${tarifPajak}): Rp ${fmtNumber.format(nominalPajak)}`,
+              `COGS + Pajak: Rp ${fmtNumber.format(cogsPlusPajak)}`,
+            ]);
+          } else {
+            aoa.push([
+              `Kategori: ${kategori}`,
+              `Penyedia: ${penyedia}`,
+              `Status: ${statusStok}`,
+              `Kuota: ${kuota} GB`,
+              `Modal (COGS): Rp ${fmtNumber.format(cogs)}`,
+            ]);
           }
 
-          item.push(targetMargin, pVal, mPct);
-          dataRows.push(item);
-        }
-      });
+          aoa.push([
+            "No",
+            "Tier / Volume",
+            "Target Margin",
+            "Harga Jual / Unit (Rp)",
+            "Margin Aktual",
+            "Estimasi Laba / Unit (Rp)",
+          ]);
 
-      const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+          for (let i = 0; i < NUM_SCENARIOS; i++) {
+            const unitLabel = `${qtyLabels[i]} unit`;
+            const targetMargin = `${margins[i]}%`;
+            const pVal = typeof row[`_rawPrice${i}`] === "number" ? Math.round(row[`_rawPrice${i}`]) : 0;
+            const mPct = row[`_m${i}`] !== undefined && !isNaN(row[`_m${i}`])
+              ? `${(row[`_m${i}`] * 100).toFixed(1)}%`
+              : "-";
+            const labaUnit = pVal > 0 ? Math.round(pVal - cogsPlusPajak) : 0;
+
+            aoa.push([
+              i + 1,
+              unitLabel,
+              targetMargin,
+              pVal,
+              mPct,
+              labaUnit,
+            ]);
+          }
+
+          aoa.push([]);
+        });
+
+        ws = XLSX.utils.aoa_to_sheet(aoa);
+      } else {
+        const headerRow = [
+          "No",
+          "Unit (Volume)",
+          "Penyedia",
+          "Status Stok",
+          "Provider / Nama Paket",
+          "Kuota (GB)",
+          "COGS (Rp)",
+        ];
+
+        if (taxEnabled) {
+          headerRow.push("Tarif Pajak", "Nominal Pajak (Rp)", "COGS + Pajak (Rp)");
+        }
+
+        headerRow.push("Target Margin", "Harga Jual (Rp)", "Margin Aktual");
+
+        const dataRows = [];
+        rowsToExport.forEach((row, idx) => {
+          const productNo = idx + 1;
+          const penyedia = row[0] || "-";
+          const statusStok = row[1] || "-";
+          const provider = row[2] || "-";
+          const kuota = typeof row[3] === "number" ? row[3] : Number(row[3]) || 0;
+          const cogs = typeof row[4] === "number" ? row[4] : Number(row[4]) || 0;
+
+          const tarifPajak = row._taxInfo?.label || "0%";
+          const nominalPajak = row._taxAmount ? Math.round(row._taxAmount) : 0;
+          const cogsPlusPajak = row._effectiveCogs ? Math.round(row._effectiveCogs) : (Number(row[4]) || 0);
+
+          for (let i = 0; i < NUM_SCENARIOS; i++) {
+            const unitLabel = `${qtyLabels[i]} unit`;
+            const targetMargin = `${margins[i]}%`;
+            const pVal = typeof row[`_rawPrice${i}`] === "number" ? Math.round(row[`_rawPrice${i}`]) : 0;
+            const mPct = row[`_m${i}`] !== undefined && !isNaN(row[`_m${i}`]) ? `${(row[`_m${i}`] * 100).toFixed(1)}%` : "-";
+
+            const item = [
+              productNo,
+              unitLabel,
+              penyedia,
+              statusStok,
+              provider,
+              kuota,
+              cogs,
+            ];
+
+            if (taxEnabled) {
+              item.push(tarifPajak, nominalPajak, cogsPlusPajak);
+            }
+
+            item.push(targetMargin, pVal, mPct);
+            dataRows.push(item);
+          }
+        });
+
+        ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+      }
+
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
 
@@ -818,6 +1147,7 @@ export default function ProductTable({
         <table className={`simcard-calc-table ${taxEnabled ? "is-tax-active" : ""}`}>
           <thead>
             <tr className="header-group-row">
+              <th className="group-header group-header-action"></th>
               <th colSpan={baseColCount} className="group-header group-header-base">
                 Data Produk {taxEnabled ? "& Modal (+Pajak)" : "& Modal"}
               </th>
@@ -830,9 +1160,9 @@ export default function ProductTable({
                   S{i + 1} ({qtyLabels[i]} unit · {margins[i]}%)
                 </th>
               ))}
-              <th className="group-header group-header-action"></th>
             </tr>
             <tr className="header-columns-row">
+              <th className="col-action text-center" aria-label="Aksi"></th>
               <th className="col-kategori">Kategori</th>
               <th className="col-penyedia text-center">Penyedia</th>
               <th className="col-stok">Stok</th>
@@ -851,7 +1181,6 @@ export default function ProductTable({
                   <th className="col-margin text-right">Margin</th>
                 </React.Fragment>
               ))}
-              <th className="col-action text-center"></th>
             </tr>
           </thead>
           <tbody>
@@ -965,7 +1294,14 @@ export default function ProductTable({
         </button>
         <button
           className="btn btn-success"
-          onClick={handleDownloadExcel}
+          onClick={() => {
+            if (enrichedData.length === 0) {
+              alert("Belum ada data paket untuk didownload.");
+              return;
+            }
+            setExportFormat("excel");
+            setIsExportModalOpen(true);
+          }}
           disabled={isExporting}
           title="Unduh data tabel dalam format spreadsheet Excel (.xlsx)"
         >
@@ -973,7 +1309,14 @@ export default function ProductTable({
         </button>
         <button
           className="btn"
-          onClick={handleDownloadCSV}
+          onClick={() => {
+            if (enrichedData.length === 0) {
+              alert("Belum ada data paket untuk didownload.");
+              return;
+            }
+            setExportFormat("csv");
+            setIsExportModalOpen(true);
+          }}
           disabled={isExporting}
           title="Unduh data tabel dalam format CSV (.csv)"
         >
@@ -983,6 +1326,26 @@ export default function ProductTable({
           Kembalikan data awal
         </button>
       </div>
+
+      {isExportModalOpen && (
+        <ExportPackageModal
+          isOpen={isExportModalOpen}
+          onClose={() => setIsExportModalOpen(false)}
+          items={enrichedData}
+          initialSelectedItems={filteredData.length > 0 ? filteredData : enrichedData}
+          availableCategories={availableCategories}
+          format={exportFormat}
+          productTypeLabel={typeConfig.label}
+          onExport={async (selectedRows, format, layout) => {
+            setIsExportModalOpen(false);
+            if (format === "csv") {
+              await handleDownloadCSV(selectedRows, layout);
+            } else {
+              await handleDownloadExcel(selectedRows, layout);
+            }
+          }}
+        />
+      )}
 
       {children}
     </section>
